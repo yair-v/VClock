@@ -10,10 +10,22 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const ExcelJS = require('exceljs');
+const crypto = require('crypto');
+
+const {
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+} = require('@simplewebauthn/server');
+
 const { query, initDb } = require('./db');
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'vclock-secret';
+const RP_NAME = process.env.WEBAUTHN_RP_NAME || 'VClock';
+const RP_ID = process.env.WEBAUTHN_RP_ID || process.env.RENDER_EXTERNAL_HOSTNAME || 'localhost';
+const ORIGIN = process.env.WEBAUTHN_ORIGIN || (process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`);
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -52,6 +64,32 @@ function adminRequired(req, res, next) {
   next();
 }
 
+async function getUserByLoginValue(loginValue) {
+  const result = await query(
+    `SELECT *
+     FROM users
+     WHERE employee_code = $1
+        OR LOWER(full_name) = LOWER($1)
+     ORDER BY id ASC
+     LIMIT 1`,
+    [String(loginValue || '').trim()]
+  );
+  return result.rows[0];
+}
+
+function createUserToken(user) {
+  return jwt.sign(
+    {
+      id: user.id,
+      employee_code: user.employee_code,
+      full_name: user.full_name,
+      role: user.role
+    },
+    JWT_SECRET,
+    { expiresIn: '12h' }
+  );
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, port: PORT });
 });
@@ -59,19 +97,7 @@ app.get('/api/health', (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { employeeCode, password } = req.body;
-    const loginValue = String(employeeCode || '').trim();
-
-    const result = await query(
-      `SELECT *
-       FROM users
-       WHERE employee_code = $1
-          OR LOWER(full_name) = LOWER($1)
-       ORDER BY id ASC
-       LIMIT 1`,
-      [loginValue]
-    );
-
-    const user = result.rows[0];
+    const user = await getUserByLoginValue(employeeCode);
 
     if (!user || !user.is_active) {
       return res.status(400).json({ error: 'משתמש לא קיים או חסום' });
@@ -81,16 +107,223 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'סיסמה שגויה' });
     }
 
-    const token = jwt.sign(
-      {
+    const token = createUserToken(user);
+
+    res.json({
+      token,
+      user: {
         id: user.id,
         employee_code: user.employee_code,
         full_name: user.full_name,
         role: user.role
-      },
-      JWT_SECRET,
-      { expiresIn: '12h' }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Passkey / WebAuthn registration
+app.post('/api/passkeys/register/options', authRequired, async (req, res) => {
+  try {
+    const existing = await query(
+      `SELECT credential_id
+       FROM passkeys
+       WHERE user_id = $1`,
+      [req.user.id]
     );
+
+    const webauthnUserId = Buffer.from(`vclock:${req.user.id}`, 'utf8').toString('base64url');
+
+    const options = await generateRegistrationOptions({
+      rpName: RP_NAME,
+      rpID: RP_ID,
+      userName: req.user.employee_code,
+      userDisplayName: req.user.full_name,
+      userID: webauthnUserId,
+      timeout: 60000,
+      attestationType: 'none',
+      excludeCredentials: existing.rows.map(r => ({
+        id: r.credential_id,
+        type: 'public-key',
+      })),
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'preferred',
+      },
+      supportedAlgorithmIDs: [-7, -257],
+    });
+
+    await query(
+      `UPDATE users
+       SET created_at = created_at
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    req.app.locals.passkeyRegistrationChallenges = req.app.locals.passkeyRegistrationChallenges || new Map();
+    req.app.locals.passkeyRegistrationChallenges.set(String(req.user.id), options.challenge);
+
+    res.json(options);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/passkeys/register/verify', authRequired, async (req, res) => {
+  try {
+    const expectedChallenge =
+      req.app.locals.passkeyRegistrationChallenges?.get(String(req.user.id));
+
+    if (!expectedChallenge) {
+      return res.status(400).json({ error: 'Challenge registration missing' });
+    }
+
+    const verification = await verifyRegistrationResponse({
+      response: req.body,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+      requireUserVerification: false,
+    });
+
+    const { verified, registrationInfo } = verification;
+
+    if (!verified || !registrationInfo) {
+      return res.status(400).json({ error: 'Passkey registration failed' });
+    }
+
+    await query(
+      `INSERT INTO passkeys
+       (user_id, webauthn_user_id, credential_id, public_key, counter, device_type, backed_up, transports)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (credential_id) DO NOTHING`,
+      [
+        req.user.id,
+        Buffer.from(`vclock:${req.user.id}`, 'utf8').toString('base64url'),
+        registrationInfo.credential.id,
+        registrationInfo.credential.publicKey.toString('base64url'),
+        registrationInfo.credential.counter,
+        registrationInfo.credentialDeviceType || '',
+        !!registrationInfo.credentialBackedUp,
+        JSON.stringify(req.body.response?.transports || []),
+      ]
+    );
+
+    req.app.locals.passkeyRegistrationChallenges.delete(String(req.user.id));
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Passkey / WebAuthn authentication
+app.post('/api/passkeys/auth/options', async (req, res) => {
+  try {
+    const { employeeCode } = req.body;
+    const user = await getUserByLoginValue(employeeCode);
+
+    if (!user || !user.is_active) {
+      return res.status(400).json({ error: 'משתמש לא קיים או חסום' });
+    }
+
+    const passkeys = await query(
+      `SELECT *
+       FROM passkeys
+       WHERE user_id = $1`,
+      [user.id]
+    );
+
+    if (!passkeys.rows.length) {
+      return res.status(400).json({ error: 'לא הוגדר זיהוי ביומטרי לעובד זה' });
+    }
+
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID,
+      allowCredentials: passkeys.rows.map(p => ({
+        id: p.credential_id,
+        type: 'public-key',
+        transports: JSON.parse(p.transports || '[]'),
+      })),
+      userVerification: 'preferred',
+      timeout: 60000,
+    });
+
+    req.app.locals.passkeyAuthChallenges = req.app.locals.passkeyAuthChallenges || new Map();
+    req.app.locals.passkeyAuthChallenges.set(String(user.id), options.challenge);
+
+    res.json({
+      ...options,
+      userId: user.id,
+      employee_code: user.employee_code,
+      full_name: user.full_name,
+      role: user.role,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/passkeys/auth/verify', async (req, res) => {
+  try {
+    const { userId, credential } = req.body;
+
+    const userRes = await query(`SELECT * FROM users WHERE id = $1`, [userId]);
+    const user = userRes.rows[0];
+
+    if (!user || !user.is_active) {
+      return res.status(400).json({ error: 'משתמש לא קיים או חסום' });
+    }
+
+    const expectedChallenge =
+      req.app.locals.passkeyAuthChallenges?.get(String(user.id));
+
+    if (!expectedChallenge) {
+      return res.status(400).json({ error: 'Challenge authentication missing' });
+    }
+
+    const credentialRes = await query(
+      `SELECT *
+       FROM passkeys
+       WHERE credential_id = $1`,
+      [credential.id]
+    );
+
+    const dbPasskey = credentialRes.rows[0];
+
+    if (!dbPasskey) {
+      return res.status(400).json({ error: 'Passkey לא נמצא' });
+    }
+
+    const verification = await verifyAuthenticationResponse({
+      response: credential,
+      expectedChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+      credential: {
+        id: dbPasskey.credential_id,
+        publicKey: Buffer.from(dbPasskey.public_key, 'base64url'),
+        counter: Number(dbPasskey.counter),
+        transports: JSON.parse(dbPasskey.transports || '[]'),
+      },
+      requireUserVerification: false,
+    });
+
+    if (!verification.verified) {
+      return res.status(400).json({ error: 'אימות ביומטרי נכשל' });
+    }
+
+    await query(
+      `UPDATE passkeys
+       SET counter = $1
+       WHERE id = $2`,
+      [verification.authenticationInfo.newCounter, dbPasskey.id]
+    );
+
+    req.app.locals.passkeyAuthChallenges.delete(String(user.id));
+
+    const token = createUserToken(user);
 
     res.json({
       token,
@@ -246,9 +479,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
     const lastRecord = lastRes.rows[0];
 
     if (recordType === 'in' && user.day_closed) {
-      return res.status(400).json({
-        error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש'
-      });
+      return res.status(400).json({ error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש' });
     }
 
     if (
@@ -426,9 +657,7 @@ app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (req, re
 
 app.post('/api/admin/reports/delete-many', authRequired, adminRequired, async (req, res) => {
   try {
-    const ids = Array.isArray(req.body.ids)
-      ? req.body.ids.map(v => parseInt(v, 10)).filter(Boolean)
-      : [];
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(v => parseInt(v, 10)).filter(Boolean) : [];
 
     if (!ids.length) {
       return res.status(400).json({ error: 'לא נבחרו שורות למחיקה' });
@@ -769,7 +998,6 @@ app.post('/api/admin/shutdown', authRequired, adminRequired, (req, res) => {
   setTimeout(() => process.exit(0), 500);
 });
 
-// STATIC + SPA CATCH-ALL MUST BE LAST
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (req, res) => {

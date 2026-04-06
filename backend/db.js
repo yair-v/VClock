@@ -11,7 +11,7 @@ const pool = new Pool({
   connectionString,
   ssl: process.env.NODE_ENV === 'production'
     ? { rejectUnauthorized: false }
-    : false
+    : false,
 });
 
 async function query(sql, params = []) {
@@ -27,7 +27,8 @@ async function ensureSeedData() {
   if (admin.rows.length === 0) {
     const hash = await bcrypt.hash('1234', 10);
     await query(
-      `INSERT INTO users (employee_code, full_name, password_hash, role, is_active, day_closed)
+      `INSERT INTO users
+       (employee_code, full_name, password_hash, role, is_active, day_closed)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       ['admin', 'System Admin', hash, 'admin', 1, 0]
     );
@@ -41,7 +42,8 @@ async function ensureSeedData() {
   if (employee.rows.length === 0) {
     const hash = await bcrypt.hash('1234', 10);
     await query(
-      `INSERT INTO users (employee_code, full_name, password_hash, role, is_active, day_closed)
+      `INSERT INTO users
+       (employee_code, full_name, password_hash, role, is_active, day_closed)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       ['1001', 'Demo Employee', hash, 'employee', 1, 0]
     );
@@ -84,7 +86,23 @@ async function initDb() {
       id INTEGER PRIMARY KEY,
       prevent_double_checkin INTEGER NOT NULL DEFAULT 1,
       prevent_checkout_without_checkin INTEGER NOT NULL DEFAULT 1,
-      allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1
+      allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1,
+      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שבת","חג","חופשה","מחלה","מילואים","עבודה מהבית","אחר"]'
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS passkeys (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      webauthn_user_id TEXT NOT NULL,
+      credential_id TEXT UNIQUE NOT NULL,
+      public_key TEXT NOT NULL,
+      counter BIGINT NOT NULL DEFAULT 0,
+      device_type TEXT DEFAULT '',
+      backed_up BOOLEAN DEFAULT FALSE,
+      transports TEXT DEFAULT '[]',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
 
