@@ -411,29 +411,29 @@ async function renderEmployee() {
       const rows = await api('/api/my-records');
 
       document.getElementById('myRecords').innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>סוג</th>
+              <th>סוג יום</th>
+              <th>הערה</th>
+              <th>תאריך ושעה</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
               <tr>
-                <th>סוג</th>
-                <th>סוג יום</th>
-                <th>הערה</th>
-                <th>תאריך ושעה</th>
+                <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                <td>${r.work_day_type}</td>
+                <td>${r.note || ''}</td>
+                <td>${fmtDateTime(r.record_time)}</td>
               </tr>
-            </thead>
-            <tbody>
-              ${rows.map(r => `
-                <tr>
-                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                  <td>${r.work_day_type}</td>
-                  <td>${r.note || ''}</td>
-                  <td>${fmtDateTime(r.record_time)}</td>
-                </tr>
-              `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      `;
+            `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `;
     } catch (err) {
       document.getElementById('myRecords').innerHTML = `<div class="error">${err.message}</div>`;
     }

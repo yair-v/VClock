@@ -169,9 +169,6 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
          record_type,
          work_day_type,
          note,
-         latitude,
-         longitude,
-         location_status,
          record_time
        FROM attendance_records
        WHERE user_id = $1
@@ -186,9 +183,6 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
       { header: 'Record Type', key: 'record_type', width: 14 },
       { header: 'Work Day Type', key: 'work_day_type', width: 18 },
       { header: 'Note', key: 'note', width: 30 },
-      { header: 'Latitude', key: 'latitude', width: 16 },
-      { header: 'Longitude', key: 'longitude', width: 16 },
-      { header: 'Location Status', key: 'location_status', width: 20 },
       { header: 'Record Time', key: 'record_time', width: 25 }
     ];
 
