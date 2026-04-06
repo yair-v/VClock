@@ -154,6 +154,15 @@ async function renderEmployee() {
           <div>
             <label class="label">הערה</label>
             <textarea class="textarea" id="note"></textarea>
+            <div>
+              <label class="label">ארוחות</label>
+              <div class="row" style="margin-top:8px">
+                <label><input type="checkbox" id="mealMorning" /> א. בוקר</label>
+                <label><input type="checkbox" id="mealNoon" /> א. צהריים</label>
+                <label><input type="checkbox" id="mealEvening" /> א. ערב</label>
+              </div>
+              <div class="small" id="mealInfo" style="margin-top:8px"></div>
+            </div>
           </div>
           <div class="grid grid-2">
             <button class="btn btn-ok btn-block" id="checkInBtn">כניסה לעבודה</button>
@@ -184,6 +193,8 @@ async function renderEmployee() {
   document.getElementById('checkOutBtn').onclick = async () => {
     await submitAttendance('out');
   };
+  setupMealCheckboxes();
+
 
   async function submitAttendance(recordType) {
     let latitude = '';
@@ -216,7 +227,15 @@ async function renderEmployee() {
 
     try {
       const workDayType = document.getElementById('workDayType').value;
-      const note = document.getElementById('note').value;
+      const noteText = document.getElementById('note').value;
+
+      const selectedMeals = [];
+      if (document.getElementById('mealMorning')?.checked) selectedMeals.push('א. בוקר');
+      if (document.getElementById('mealNoon')?.checked) selectedMeals.push('א. צהריים');
+      if (document.getElementById('mealEvening')?.checked) selectedMeals.push('א. ערב');
+
+      const mealsText = selectedMeals.length ? ` | ארוחות: ${selectedMeals.join(', ')}` : '';
+      const note = `${noteText || ''}${mealsText}`.trim();
 
       const result = await api('/api/attendance', {
         method: 'POST',
@@ -231,6 +250,9 @@ async function renderEmployee() {
       });
 
       document.getElementById('note').value = '';
+      if (document.getElementById('mealMorning')) document.getElementById('mealMorning').checked = false;
+      if (document.getElementById('mealNoon')) document.getElementById('mealNoon').checked = false;
+      if (document.getElementById('mealEvening')) document.getElementById('mealEvening').checked = false;
 
       showMessage(
         'success',
@@ -276,6 +298,96 @@ async function renderEmployee() {
   }
 
   loadMyRecords();
+}
+function getCurrentMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function isMealAllowed(mealType) {
+  const minutes = getCurrentMinutes();
+
+  if (mealType === 'morning') {
+    return minutes >= (8 * 60 + 30) && minutes <= (11 * 60 + 30);
+  }
+
+  if (mealType === 'noon') {
+    return minutes >= (12 * 60) && minutes <= (15 * 60);
+  }
+
+  if (mealType === 'evening') {
+    return minutes >= (19 * 60) && minutes <= (20 * 60 + 30);
+  }
+
+  return false;
+}
+
+async function requestMealLocationPermission() {
+  alert('על מנת לסמן ארוחה עליך לאשר את המיקום לצורך אישור העלות');
+
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject('NO_GPS');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve(pos),
+      () => reject('NO_PERMISSION'),
+      {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0
+      }
+    );
+  });
+}
+
+function setupMealCheckboxes() {
+  const morning = document.getElementById('mealMorning');
+  const noon = document.getElementById('mealNoon');
+  const evening = document.getElementById('mealEvening');
+  const info = document.getElementById('mealInfo');
+
+  if (!morning || !noon || !evening || !info) return;
+
+  function updateMealAvailabilityText() {
+    const parts = [];
+
+    parts.push(`בוקר: ${isMealAllowed('morning') ? 'זמין' : 'לא זמין'}`);
+    parts.push(`צהריים: ${isMealAllowed('noon') ? 'זמין' : 'לא זמין'}`);
+    parts.push(`ערב: ${isMealAllowed('evening') ? 'זמין' : 'לא זמין'}`);
+
+    info.textContent = parts.join(' | ');
+  }
+
+  async function handleMealToggle(event, mealType) {
+    const checkbox = event.target;
+
+    if (!checkbox.checked) {
+      return;
+    }
+
+    if (!isMealAllowed(mealType)) {
+      alert('הארוחה אינה זמינה בשעה זו');
+      checkbox.checked = false;
+      return;
+    }
+
+    try {
+      await requestMealLocationPermission();
+    } catch (err) {
+      checkbox.checked = false;
+      alert('לא אושר מיקום. סימון הארוחה בוטל');
+    }
+  }
+
+  morning.addEventListener('change', (e) => handleMealToggle(e, 'morning'));
+  noon.addEventListener('change', (e) => handleMealToggle(e, 'noon'));
+  evening.addEventListener('change', (e) => handleMealToggle(e, 'evening'));
+
+  updateMealAvailabilityText();
+  setInterval(updateMealAvailabilityText, 60000);
 }
 
 async function renderAdmin() {
