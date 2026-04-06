@@ -472,7 +472,7 @@ async function renderEmployee() {
       let msg = serverMsg || 'אירעה שגיאה';
 
       if (recordType === 'in' && serverMsg.includes('כניסה כפולה')) {
-        msg = `שלום ${employeeName}, כבר קיימת כניסה פתוחה. אנא בדוק את הדיווחים בתחתית הדף.`;
+        msg = `שלום ${employeeName}, כבר קיימת כניסה פתוחה. אנא בדוק את הדיווחים בתחתית הדף, אם זאת אינה טעות אנא פנה למנהל המחלקה.`;
       } else if (recordType === 'in' && serverMsg.includes('היום נסגר')) {
         msg = `שלום ${employeeName}, יום העבודה נסגר וכרגע אין אפשרות לבצע כניסה נוספת. מנהל יכול לפתוח עבורך מחדש את אפשרות הכניסה.`;
       } else if (recordType === 'out' && serverMsg.includes('יציאה ללא כניסה')) {
