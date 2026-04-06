@@ -1,0 +1,49 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+
+# Build
+dist/
+build/
+
+# Vite / React (אם תוסיף בעתיד)
+.vite
+
+# DB (קריטי ל-Render)
+backend/data/db.json
+
+# Temporary
+tmp/
+temp/
+
+# VSCode
+.vscode/
+
+# JetBrains
+.idea/
+
+# Windows BAT temp
+*.bat~
