@@ -186,31 +186,37 @@ async function renderEmployee() {
   };
 
   async function submitAttendance(recordType) {
-    clearMessage();
+    let latitude = '';
+    let longitude = '';
+    let location_status = 'ok';
+
+    try {
+      const position = await new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject('NO_GPS');
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve(pos),
+          () => reject('NO_PERMISSION'),
+          {
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 0
+          }
+        );
+      });
+
+      latitude = position.coords.latitude;
+      longitude = position.coords.longitude;
+    } catch (err) {
+      location_status = 'no_permission';
+    }
 
     try {
       const workDayType = document.getElementById('workDayType').value;
       const note = document.getElementById('note').value;
-
-      let latitude = '';
-      let longitude = '';
-
-      if (navigator.geolocation) {
-        try {
-          const pos = await new Promise((resolve, reject) => {
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 8000,
-              maximumAge: 0
-            });
-          });
-
-          latitude = pos.coords.latitude;
-          longitude = pos.coords.longitude;
-        } catch (gpsErr) {
-          console.log('GPS not available or denied', gpsErr);
-        }
-      }
 
       const result = await api('/api/attendance', {
         method: 'POST',
@@ -219,20 +225,19 @@ async function renderEmployee() {
           workDayType,
           note,
           latitude,
-          longitude
+          longitude,
+          location_status
         })
       });
 
       document.getElementById('note').value = '';
 
-      let msg = `${recordType === 'in' ? 'כניסה' : 'יציאה'} נשמרה בהצלחה: ${fmtDateTime(result.record_time)}`;
-      if (latitude && longitude) {
-        msg += ' | מיקום נשמר';
-      }
+      showMessage(
+        'success',
+        `${recordType === 'in' ? 'כניסה' : 'יציאה'} נשמרה בהצלחה: ${fmtDateTime(result.record_time)}`
+      );
 
-      showMessage('success', msg);
       loadMyRecords();
-
     } catch (err) {
       showMessage('error', err.message);
     }
@@ -426,7 +431,11 @@ async function loadReports() {
                 <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
                 <td>${r.work_day_type}</td>
                 <td>${r.note || ''}</td>
-                <td>${r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : 'אין מיקום'}</td>
+                <td>
+                  ${r.location_status === 'no_permission' ? 'הרשאות מיקום סגורות' : (r.latitude && r.longitude
+          ? `<a href="https://www.google.com/maps?q=${r.latitude},${r.longitude}" target="_blank">פתח מפה</a>` : '')
+        }
+                </td>
                 <td>${fmtDateTime(r.record_time)}</td>
                 </tr>
               `).join('') || '<tr><td colspan="7">אין נתונים</td></tr>'}

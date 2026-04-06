@@ -110,7 +110,7 @@ app.get('/api/my-records', authRequired, async (req, res) => {
 
 app.post('/api/attendance', authRequired, async (req, res) => {
   try {
-    const { recordType, workDayType, note, latitude, longitude } = req.body;
+    const { recordType, workDayType, note, latitude, longitude, location_status } = req.body;
 
     if (!['in', 'out'].includes(recordType)) {
       return res.status(400).json({ error: 'סוג דיווח לא תקין' });
@@ -155,9 +155,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
 
     const result = await query(
       `INSERT INTO attendance_records
-       (user_id, record_type, work_day_type, note, latitude, longitude, ip_address, device_info, record_time, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),NOW())
-       RETURNING *`,
+      (user_id, record_type, work_day_type, note, latitude, longitude, location_status, ip_address, device_info, record_time, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+      RETURNING *`,
       [
         req.user.id,
         recordType,
@@ -165,6 +165,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         note || '',
         latitude || '',
         longitude || '',
+        location_status || 'ok',
         req.ip || '',
         req.headers['user-agent'] || ''
       ]

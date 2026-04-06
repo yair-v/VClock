@@ -62,20 +62,21 @@ async function initDb() {
   `);
 
   await query(`
-    CREATE TABLE IF NOT EXISTS attendance_records (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      record_type TEXT NOT NULL CHECK (record_type IN ('in', 'out')),
-      work_day_type TEXT NOT NULL,
-      note TEXT DEFAULT '',
-      latitude TEXT DEFAULT '',
-      longitude TEXT DEFAULT '',
-      ip_address TEXT DEFAULT '',
-      device_info TEXT DEFAULT '',
-      record_time TIMESTAMP NOT NULL DEFAULT NOW(),
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
-    )
-  `);
+  CREATE TABLE IF NOT EXISTS attendance_records (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    record_type TEXT NOT NULL CHECK (record_type IN ('in', 'out')),
+    work_day_type TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    latitude TEXT DEFAULT '',
+    longitude TEXT DEFAULT '',
+    location_status TEXT DEFAULT 'ok',
+    ip_address TEXT DEFAULT '',
+    device_info TEXT DEFAULT '',
+    record_time TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )
+`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS settings (
