@@ -9,6 +9,26 @@ const state = {
   modal: null
 };
 
+function base64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - base64.length % 4) % 4);
+  const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+
+  const rawData = atob(base64Safe);
+  const output = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    output[i] = rawData.charCodeAt(i);
+  }
+  return output;
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
 function saveAuth(token, user) {
   state.token = token;
   state.user = user;
@@ -192,49 +212,88 @@ function renderLogin() {
 
     try {
       const employeeCode = document.getElementById('loginEmployeeCode').value;
+
       if (!employeeCode) {
-        showMessage('error', 'יש להזין שם עובד או מספר עובד לפני כניסה ביומטרית');
+        showMessage('error', 'יש להזין שם עובד או מספר עובד');
         return;
       }
 
-      const optionsRes = await fetch('/api/passkeys/auth/options', {
+      // 1. קבלת options מהשרת
+      const res = await fetch('/api/passkeys/auth/options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeCode })
       });
 
-      const options = await optionsRes.json();
-      if (!optionsRes.ok) {
-        showMessage('error', options.error || 'שגיאה בטעינת ביומטרי');
+      const options = await res.json();
+
+      if (!res.ok || !options) {
+        showMessage('error', options?.error || 'שגיאה בקבלת נתוני ביומטרי');
         return;
       }
 
-      const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON
-        ? PublicKeyCredential.parseRequestOptionsFromJSON(options)
-        : options;
+      // 🔴 פה היה נופל לך
+      if (!options.challenge) {
+        showMessage('error', 'שגיאה: אין challenge מהשרת');
+        return;
+      }
 
-      const credential = await navigator.credentials.get({ publicKey });
+      // 2. המרה תקינה ל־WebAuthn
+      options.challenge = base64ToUint8Array(options.challenge);
 
+      if (options.allowCredentials) {
+        options.allowCredentials = options.allowCredentials.map(c => ({
+          ...c,
+          id: base64ToUint8Array(c.id)
+        }));
+      }
+
+      // 3. בקשת ביומטרי מהדפדפן
+      const credential = await navigator.credentials.get({
+        publicKey: options
+      });
+
+      if (!credential) {
+        showMessage('error', 'האימות הביומטרי בוטל');
+        return;
+      }
+
+      // 4. שליחה לשרת
       const verifyRes = await fetch('/api/passkeys/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: options.userId,
-          credential: credential.toJSON ? credential.toJSON() : credential
+          credential: {
+            id: credential.id,
+            rawId: arrayBufferToBase64(credential.rawId),
+            type: credential.type,
+            response: {
+              authenticatorData: arrayBufferToBase64(credential.response.authenticatorData),
+              clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+              signature: arrayBufferToBase64(credential.response.signature),
+              userHandle: credential.response.userHandle
+                ? arrayBufferToBase64(credential.response.userHandle)
+                : null
+            }
+          }
         })
       });
 
       const data = await verifyRes.json();
+
       if (!verifyRes.ok) {
-        showMessage('error', data.error || 'אימות ביומטרי נכשל');
+        showMessage('error', data.error || 'האימות נכשל');
         return;
       }
 
       saveAuth(data.token, data.user);
-      toast('success', 'התחברת עם זיהוי ביומטרי');
+      toast('success', 'התחברת עם ביומטרי 🚀');
       render();
+
     } catch (err) {
-      showMessage('error', 'הכניסה הביומטרית לא הושלמה');
+      console.error(err);
+      showMessage('error', 'שגיאה בזיהוי ביומטרי');
     }
   };
 }
