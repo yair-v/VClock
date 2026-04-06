@@ -5,7 +5,8 @@ const state = {
   user: JSON.parse(localStorage.getItem('vclock_user') || 'null'),
   currentTab: 'dashboard',
   employeeStatus: null,
-  selectedReportIds: []
+  selectedReportIds: [],
+  modal: null
 };
 
 function saveAuth(token, user) {
@@ -78,25 +79,85 @@ function clearMessage() {
   box.textContent = '';
 }
 
+function ensureToastWrap() {
+  let wrap = document.getElementById('toastWrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'toastWrap';
+    wrap.className = 'toast-wrap';
+    document.body.appendChild(wrap);
+  }
+  return wrap;
+}
+
+function toast(type, text) {
+  const wrap = ensureToastWrap();
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = text;
+  wrap.appendChild(el);
+  setTimeout(() => {
+    el.remove();
+  }, 3200);
+}
+
+function closeModal() {
+  const existing = document.getElementById('globalModal');
+  if (existing) existing.remove();
+  state.modal = null;
+}
+
+function openConfirmModal({ title, text, confirmText = 'אישור', cancelText = 'ביטול', onConfirm }) {
+  closeModal();
+
+  const host = document.createElement('div');
+  host.id = 'globalModal';
+  host.className = 'modal-backdrop';
+  host.innerHTML = `
+    <div class="modal">
+      <h3 class="modal-title">${title}</h3>
+      <p class="modal-text">${text}</p>
+      <div class="row">
+        <button class="btn btn-primary" id="modalConfirmBtn">${confirmText}</button>
+        <button class="btn btn-light" id="modalCancelBtn">${cancelText}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(host);
+
+  document.getElementById('modalCancelBtn').onclick = closeModal;
+  document.getElementById('modalConfirmBtn').onclick = async () => {
+    closeModal();
+    await onConfirm();
+  };
+}
+
 function renderLogin() {
   app.innerHTML = `
     <div class="mobile-shell">
-      <div class="card center">
-        <div class="badge">VClock</div>
+      <div class="card hero-card center">
+        <div class="badge">VClock 2026</div>
         <h1 class="title">מערכת שעון נוכחות</h1>
-        <p class="subtitle">התחברות עובד / מנהל</p>
+        <p class="subtitle">כניסה עם זיהוי ביומטרי או סיסמה</p>
         <div id="msgBox" class="hidden"></div>
-        <form id="loginForm" class="grid">
+
+        <div class="grid" style="text-align:right">
           <div>
             <label class="label">שם עובד או מספר עובד</label>
-            <input class="input" name="employeeCode" value="" required />
+            <input class="input" id="loginEmployeeCode" />
           </div>
           <div>
             <label class="label">סיסמה</label>
-            <input class="input" type="password" name="password" value="" required />
+            <input class="input" id="loginPassword" type="password" />
           </div>
-          <button class="btn btn-primary btn-block" type="submit">התחבר</button>
-        </form>
+        </div>
+
+        <div class="hero-login-actions">
+          <button class="btn btn-primary btn-block" id="bioLoginBtn">כניסה עם זיהוי ביומטרי</button>
+          <div class="login-divider">או</div>
+          <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+        </div>
+
         <hr class="sep" />
         <div class="small">
           משתמשים לדוגמה:<br />
@@ -107,23 +168,73 @@ function renderLogin() {
     </div>
   `;
 
-  document.getElementById('loginForm').onsubmit = async (e) => {
-    e.preventDefault();
+  document.getElementById('passwordLoginBtn').onclick = async () => {
     clearMessage();
-    const fd = new FormData(e.target);
-
     try {
+      const employeeCode = document.getElementById('loginEmployeeCode').value;
+      const password = document.getElementById('loginPassword').value;
+
       const data = await api('/api/login', {
         method: 'POST',
-        body: JSON.stringify({
-          employeeCode: fd.get('employeeCode'),
-          password: fd.get('password')
-        })
+        body: JSON.stringify({ employeeCode, password })
       });
+
       saveAuth(data.token, data.user);
+      toast('success', 'התחברת בהצלחה');
       render();
     } catch (err) {
       showMessage('error', err.message);
+    }
+  };
+
+  document.getElementById('bioLoginBtn').onclick = async () => {
+    clearMessage();
+
+    try {
+      const employeeCode = document.getElementById('loginEmployeeCode').value;
+      if (!employeeCode) {
+        showMessage('error', 'יש להזין שם עובד או מספר עובד לפני כניסה ביומטרית');
+        return;
+      }
+
+      const optionsRes = await fetch('/api/passkeys/auth/options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employeeCode })
+      });
+
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) {
+        showMessage('error', options.error || 'שגיאה בטעינת ביומטרי');
+        return;
+      }
+
+      const publicKey = PublicKeyCredential.parseRequestOptionsFromJSON
+        ? PublicKeyCredential.parseRequestOptionsFromJSON(options)
+        : options;
+
+      const credential = await navigator.credentials.get({ publicKey });
+
+      const verifyRes = await fetch('/api/passkeys/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: options.userId,
+          credential: credential.toJSON ? credential.toJSON() : credential
+        })
+      });
+
+      const data = await verifyRes.json();
+      if (!verifyRes.ok) {
+        showMessage('error', data.error || 'אימות ביומטרי נכשל');
+        return;
+      }
+
+      saveAuth(data.token, data.user);
+      toast('success', 'התחברת עם זיהוי ביומטרי');
+      render();
+    } catch (err) {
+      showMessage('error', 'הכניסה הביומטרית לא הושלמה');
     }
   };
 }
@@ -257,6 +368,7 @@ async function renderEmployee() {
 
           <div class="row">
             <button class="btn btn-light" id="logoutBtn">התנתק</button>
+            <button class="btn btn-ghost" id="registerPasskeyBtn">הפעל זיהוי ביומטרי</button>
           </div>
         </div>
 
@@ -336,6 +448,31 @@ async function renderEmployee() {
       showMessage('error', err.message);
     }
   };
+  document.getElementById('registerPasskeyBtn').onclick = async () => {
+    try {
+      const options = await api('/api/passkeys/register/options', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+
+      const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON
+        ? PublicKeyCredential.parseCreationOptionsFromJSON(options)
+        : options;
+
+      const attResp = await navigator.credentials.create({ publicKey });
+
+      const result = await api('/api/passkeys/register/verify', {
+        method: 'POST',
+        body: JSON.stringify(attResp.toJSON ? attResp.toJSON() : attResp)
+      });
+
+      if (result.success) {
+        toast('success', 'הזיהוי הביומטרי הופעל בהצלחה');
+      }
+    } catch (err) {
+      toast('error', err.message || 'הפעלת ביומטרי נכשלה');
+    }
+  };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
     render();
@@ -397,10 +534,16 @@ async function renderEmployee() {
       }
 
       const employeeName = (state.user?.full_name || 'עובד').trim();
-      const ok = confirm(`שלום ${employeeName}, האם אתה בטוח שאתה רוצה לסגור את יום העבודה?`);
-      if (!ok) return;
 
-      await submitAttendance('out');
+      openConfirmModal({
+        title: 'סגירת יום עבודה',
+        text: `שלום ${employeeName}, האם אתה בטוח שאתה רוצה לסגור את יום העבודה?`,
+        confirmText: 'כן, סגור יום',
+        cancelText: 'לא',
+        onConfirm: async () => {
+          await submitAttendance('out');
+        }
+      });
     } catch (err) {
       showMessage('error', err.message || 'שגיאה בבדיקת סטטוס עובד');
     }
