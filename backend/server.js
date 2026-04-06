@@ -17,7 +17,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'vclock-secret';
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
 
 function parseWorkDayTypes(value) {
   try {
@@ -156,10 +155,17 @@ app.get('/api/my-records', authRequired, async (req, res) => {
        ORDER BY record_time DESC`,
       [req.user.id]
     );
-    app.get('/api/my-records-export', authRequired, async (req, res) => {
-      try {
-        const result = await query(
-          `SELECT
+
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/my-records-export', authRequired, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT
          record_type,
          work_day_type,
          note,
@@ -170,41 +176,35 @@ app.get('/api/my-records', authRequired, async (req, res) => {
        FROM attendance_records
        WHERE user_id = $1
        ORDER BY record_time DESC`,
-          [req.user.id]
-        );
+      [req.user.id]
+    );
 
-        const wb = new ExcelJS.Workbook();
-        const ws = wb.addWorksheet('My Attendance');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('My Attendance');
 
-        ws.columns = [
-          { header: 'Record Type', key: 'record_type', width: 14 },
-          { header: 'Work Day Type', key: 'work_day_type', width: 18 },
-          { header: 'Note', key: 'note', width: 30 },
-          { header: 'Latitude', key: 'latitude', width: 16 },
-          { header: 'Longitude', key: 'longitude', width: 16 },
-          { header: 'Location Status', key: 'location_status', width: 20 },
-          { header: 'Record Time', key: 'record_time', width: 25 }
-        ];
+    ws.columns = [
+      { header: 'Record Type', key: 'record_type', width: 14 },
+      { header: 'Work Day Type', key: 'work_day_type', width: 18 },
+      { header: 'Note', key: 'note', width: 30 },
+      { header: 'Latitude', key: 'latitude', width: 16 },
+      { header: 'Longitude', key: 'longitude', width: 16 },
+      { header: 'Location Status', key: 'location_status', width: 20 },
+      { header: 'Record Time', key: 'record_time', width: 25 }
+    ];
 
-        result.rows.forEach((r) => ws.addRow(r));
+    result.rows.forEach((r) => ws.addRow(r));
 
-        res.setHeader(
-          'Content-Type',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        );
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename=VClock_My_Records_${req.user.employee_code}.xlsx`
-        );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=VClock_My_Records_${req.user.employee_code}.xlsx`
+    );
 
-        await wb.xlsx.write(res);
-        res.end();
-      } catch (err) {
-        res.status(500).json({ error: err.message });
-      }
-    });
-
-    res.json(result.rows);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -252,7 +252,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
     const lastRecord = lastRes.rows[0];
 
     if (recordType === 'in' && user.day_closed) {
-      return res.status(400).json({ error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש' });
+      return res.status(400).json({
+        error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש'
+      });
     }
 
     if (
@@ -261,7 +263,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       lastRecord &&
       lastRecord.record_type === 'in'
     ) {
-      return res.status(400).json({ error: 'לא ניתן לבצע כניסה כפולה ללא יציאה' });
+      return res.status(400).json({
+        error: 'לא ניתן לבצע כניסה שנייה באותו היום ויש לפנות למנהל המחלקה על מנת לשחרר את הרשומה'
+      });
     }
 
     if (
@@ -269,7 +273,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       settings.prevent_checkout_without_checkin &&
       (!lastRecord || lastRecord.record_type !== 'in')
     ) {
-      return res.status(400).json({ error: 'לא ניתן לבצע יציאה ללא כניסה קודמת' });
+      return res.status(400).json({
+        error: 'לא ניתן לבצע יציאה ללא כניסה קודמת'
+      });
     }
 
     const result = await query(
@@ -358,83 +364,6 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
 });
 
 app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
-  app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id, 10);
-      const { work_day_type, note } = req.body;
-
-      await query(
-        `UPDATE attendance_records
-       SET work_day_type = $1,
-           note = $2
-       WHERE id = $3`,
-        [work_day_type || 'יום רגיל', note || '', id]
-      );
-
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id, 10);
-
-      await query(
-        `DELETE FROM attendance_records
-       WHERE id = $1`,
-        [id]
-      );
-
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-  app.post('/api/admin/reports/delete-many', authRequired, adminRequired, async (req, res) => {
-    try {
-      const ids = Array.isArray(req.body.ids) ? req.body.ids.map(v => parseInt(v, 10)).filter(Boolean) : [];
-
-      if (!ids.length) {
-        return res.status(400).json({ error: 'לא נבחרו שורות למחיקה' });
-      }
-
-      await query(
-        `DELETE FROM attendance_records
-       WHERE id = ANY($1::int[])`,
-        [ids]
-      );
-
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, async (req, res) => {
-    try {
-      const {
-        employeeCode = '',
-        fromDate = '',
-        toDate = ''
-      } = req.body || {};
-
-      await query(
-        `DELETE FROM attendance_records ar
-       USING users u
-       WHERE u.id = ar.user_id
-         AND ($1 = '' OR u.employee_code ILIKE '%' || $1 || '%' OR u.full_name ILIKE '%' || $1 || '%')
-         AND ($2 = '' OR DATE(ar.record_time) >= $2::date)
-         AND ($3 = '' OR DATE(ar.record_time) <= $3::date)`,
-        [employeeCode, fromDate, toDate]
-      );
-
-      res.json({ success: true });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
   try {
     const { employeeCode = '', fromDate = '', toDate = '' } = req.query;
 
@@ -461,6 +390,87 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
     }));
 
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { work_day_type, note } = req.body;
+
+    await query(
+      `UPDATE attendance_records
+       SET work_day_type = $1,
+           note = $2
+       WHERE id = $3`,
+      [work_day_type || 'יום רגיל', note || '', id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    await query(
+      `DELETE FROM attendance_records
+       WHERE id = $1`,
+      [id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/reports/delete-many', authRequired, adminRequired, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids)
+      ? req.body.ids.map(v => parseInt(v, 10)).filter(Boolean)
+      : [];
+
+    if (!ids.length) {
+      return res.status(400).json({ error: 'לא נבחרו שורות למחיקה' });
+    }
+
+    await query(
+      `DELETE FROM attendance_records
+       WHERE id = ANY($1::int[])`,
+      [ids]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, async (req, res) => {
+  try {
+    const {
+      employeeCode = '',
+      fromDate = '',
+      toDate = ''
+    } = req.body || {};
+
+    await query(
+      `DELETE FROM attendance_records ar
+       USING users u
+       WHERE u.id = ar.user_id
+         AND ($1 = '' OR u.employee_code ILIKE '%' || $1 || '%' OR u.full_name ILIKE '%' || $1 || '%')
+         AND ($2 = '' OR DATE(ar.record_time) >= $2::date)
+         AND ($3 = '' OR DATE(ar.record_time) <= $3::date)`,
+      [employeeCode, fromDate, toDate]
+    );
+
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -764,6 +774,9 @@ app.post('/api/admin/shutdown', authRequired, adminRequired, (req, res) => {
   res.json({ success: true });
   setTimeout(() => process.exit(0), 500);
 });
+
+// STATIC + SPA CATCH-ALL MUST BE LAST
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));

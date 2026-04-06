@@ -303,25 +303,35 @@ async function renderEmployee() {
   `;
   document.getElementById('exportMyRecordsBtn').onclick = async () => {
     try {
-      const res = await fetch(window.location.origin + '/api/my-records-export', {
+      const url = window.location.origin + '/api/my-records-export';
+
+      const res = await fetch(url, {
+        method: 'GET',
         headers: {
           'Authorization': 'Bearer ' + state.token
         }
       });
 
-      if (!res.ok) {
-        throw new Error('הורדת האקסל נכשלה');
+      // 🔴 בדיקה אם קיבלנו HTML בטעות
+      const contentType = res.headers.get('content-type') || '';
+
+      if (!res.ok || contentType.includes('text/html')) {
+        const text = await res.text();
+        console.error('Unexpected response:', text);
+        throw new Error('השרת לא החזיר קובץ אקסל');
       }
 
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+
+      const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
+      a.href = downloadUrl;
       a.download = 'VClock_My_Records.xlsx';
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(downloadUrl);
+
     } catch (err) {
       showMessage('error', err.message);
     }
