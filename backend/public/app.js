@@ -344,8 +344,24 @@ async function renderEmployee() {
   };
 
   document.getElementById('checkOutBtn').onclick = async () => {
-    const ok = confirm('האם העובד בטוח שהוא רוצה לסגור את היום?');
+    const now = new Date();
+    const hour = now.getHours();
+
+    let greeting = 'שלום';
+    if (hour >= 5 && hour < 12) {
+      greeting = 'בוקר טוב';
+    } else if (hour >= 12 && hour < 18) {
+      greeting = 'צהריים טובים';
+    } else {
+      greeting = 'ערב טוב';
+    }
+
+    const employeeName = (state.user?.full_name || 'עובד').trim();
+    const message = `${greeting} ${employeeName}, האם אתה בטוח שאתה רוצה לסגור את יום העבודה?`;
+
+    const ok = confirm(message);
     if (!ok) return;
+
     await submitAttendance('out');
   };
 
@@ -448,7 +464,21 @@ async function renderEmployee() {
       await loadEmployeeConfig();
       loadMyRecords();
     } catch (err) {
-      showMessage('error', err.message);
+      let msg = err.message || 'אירעה שגיאה';
+
+      if (recordType === 'in' && msg.includes('כניסה כפולה')) {
+        msg = 'לא ניתן לבצע כניסה נוספת לפני יציאה מהעבודה.';
+      }
+
+      if (recordType === 'in' && msg.includes('היום נסגר')) {
+        msg = 'יום העבודה כבר נסגר. יש לפנות למנהל כדי לאשר פתיחה מחדש.';
+      }
+
+      if (recordType === 'out' && msg.includes('יציאה ללא כניסה')) {
+        msg = 'לא ניתן לבצע יציאה לפני שבוצעה כניסה לעבודה.';
+      }
+
+      showMessage('error', msg);
     }
   }
 
