@@ -4,7 +4,8 @@ const state = {
   token: localStorage.getItem('vclock_token') || '',
   user: JSON.parse(localStorage.getItem('vclock_user') || 'null'),
   currentTab: 'dashboard',
-  employeeStatus: null
+  employeeStatus: null,
+  selectedReportIds: []
 };
 
 function saveAuth(token, user) {
@@ -598,6 +599,8 @@ async function loadDashboard() {
 
 async function loadReports() {
   const box = document.getElementById('tabContent');
+  state.selectedReportIds = [];
+
   box.innerHTML = `
     <h2 style="margin-top:0">כל הדיווחים</h2>
     <div class="grid grid-2">
@@ -616,14 +619,21 @@ async function loadReports() {
         </div>
       </div>
     </div>
+
     <div class="row" style="margin-top:12px">
       <button class="btn btn-primary" id="searchBtn">חפש</button>
       <button class="btn btn-light" id="exportBtn">ייצוא לאקסל</button>
+      <button class="btn btn-danger" id="deleteSelectedBtn">מחק מסומנים</button>
+      <button class="btn btn-danger" id="deleteFilteredBtn">מחק את כל המוצג</button>
     </div>
+
     <div id="reportsTable" style="margin-top:14px">טוען...</div>
   `;
 
   document.getElementById('searchBtn').onclick = doSearch;
+  document.getElementById('deleteSelectedBtn').onclick = deleteSelectedReports;
+  document.getElementById('deleteFilteredBtn').onclick = deleteFilteredReports;
+
   document.getElementById('exportBtn').onclick = async () => {
     try {
       const res = await fetch('/api/admin/export', {
@@ -646,6 +656,8 @@ async function loadReports() {
 
   async function doSearch() {
     try {
+      state.selectedReportIds = [];
+
       const qs = new URLSearchParams({
         employeeCode: document.getElementById('filterEmployee').value || '',
         fromDate: document.getElementById('fromDate').value || '',
@@ -659,6 +671,7 @@ async function loadReports() {
           <table>
             <thead>
               <tr>
+                <th><input type="checkbox" id="selectAllReports" /></th>
                 <th>קוד</th>
                 <th>שם</th>
                 <th>סוג</th>
@@ -666,37 +679,55 @@ async function loadReports() {
                 <th>הערה</th>
                 <th>מיקום</th>
                 <th>תאריך ושעה</th>
+                <th>פעולות</th>
               </tr>
             </thead>
             <tbody>
               ${rows.map(r => `
-               <tr>
-                <td>${r.employee_code}</td>
-                <td>${r.full_name}</td>
-                <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                <td>${r.work_day_type}</td>
-                <td>${r.note || ''}</td>
-                <td>
-                  ${r.location_status === 'no_permission'
+                  <tr>
+                    <td>
+                      <input
+                        type="checkbox"
+                        class="report-row-checkbox"
+                        value="${r.id}"
+                        onchange="toggleReportSelection(${r.id}, this.checked)"
+                      />
+                    </td>
+                    <td>${r.employee_code}</td>
+                    <td>${r.full_name}</td>
+                    <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                    <td>${r.work_day_type}</td>
+                    <td>${r.note || ''}</td>
+                    <td>
+                      ${r.location_status === 'no_permission'
           ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
           : (r.map_link
             ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>`
             : '')
         }
-                </td>
-                <td>${fmtDateTime(r.record_time)}</td>
-                <td>
-                  <div class="row">
-                    <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
-                    <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
-                  </div>
-                </td>
-              </tr>
-              `).join('') || '<tr><td colspan="8">אין נתונים</td></tr>'}
+                    </td>
+                    <td>${fmtDateTime(r.record_time)}</td>
+                    <td>
+                      <div class="row">
+                        <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
+                        <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')
+        || '<tr><td colspan="9">אין נתונים</td></tr>'
+        }
             </tbody>
           </table>
         </div>
       `;
+
+      const selectAll = document.getElementById('selectAllReports');
+      if (selectAll) {
+        selectAll.onchange = function () {
+          toggleSelectAllReports(this);
+        };
+      }
     } catch (err) {
       document.getElementById('reportsTable').innerHTML = `<div class="error">${err.message}</div>`;
     }
@@ -1038,6 +1069,78 @@ async function deleteReport(id) {
     });
 
     alert('השורה נמחקה');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+function toggleReportSelection(id, checked) {
+  const numId = parseInt(id, 10);
+
+  if (checked) {
+    if (!state.selectedReportIds.includes(numId)) {
+      state.selectedReportIds.push(numId);
+    }
+  } else {
+    state.selectedReportIds = state.selectedReportIds.filter(x => x !== numId);
+  }
+}
+
+function toggleSelectAllReports(source) {
+  const checkboxes = document.querySelectorAll('.report-row-checkbox');
+  state.selectedReportIds = [];
+
+  checkboxes.forEach(cb => {
+    cb.checked = source.checked;
+    if (source.checked) {
+      state.selectedReportIds.push(parseInt(cb.value, 10));
+    }
+  });
+}
+
+async function deleteSelectedReports() {
+  if (!state.selectedReportIds.length) {
+    alert('לא נבחרו שורות למחיקה');
+    return;
+  }
+
+  if (!confirm('האם למחוק את כל השורות שסומנו?')) return;
+
+  try {
+    await api('/api/admin/reports/delete-many', {
+      method: 'POST',
+      body: JSON.stringify({
+        ids: state.selectedReportIds
+      })
+    });
+
+    state.selectedReportIds = [];
+    alert('השורות נמחקו');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteFilteredReports() {
+  const employeeCode = document.getElementById('filterEmployee')?.value || '';
+  const fromDate = document.getElementById('fromDate')?.value || '';
+  const toDate = document.getElementById('toDate')?.value || '';
+
+  if (!confirm('האם למחוק את כל השורות שמוצגות לפי הסינון הנוכחי?')) return;
+
+  try {
+    await api('/api/admin/reports/delete-filtered', {
+      method: 'POST',
+      body: JSON.stringify({
+        employeeCode,
+        fromDate,
+        toDate
+      })
+    });
+
+    state.selectedReportIds = [];
+    alert('כל השורות המסוננות נמחקו');
     loadReports();
   } catch (err) {
     alert(err.message);

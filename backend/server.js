@@ -345,6 +345,49 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
       res.status(500).json({ error: err.message });
     }
   });
+  app.post('/api/admin/reports/delete-many', authRequired, adminRequired, async (req, res) => {
+    try {
+      const ids = Array.isArray(req.body.ids) ? req.body.ids.map(v => parseInt(v, 10)).filter(Boolean) : [];
+
+      if (!ids.length) {
+        return res.status(400).json({ error: 'לא נבחרו שורות למחיקה' });
+      }
+
+      await query(
+        `DELETE FROM attendance_records
+       WHERE id = ANY($1::int[])`,
+        [ids]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, async (req, res) => {
+    try {
+      const {
+        employeeCode = '',
+        fromDate = '',
+        toDate = ''
+      } = req.body || {};
+
+      await query(
+        `DELETE FROM attendance_records ar
+       USING users u
+       WHERE u.id = ar.user_id
+         AND ($1 = '' OR u.employee_code ILIKE '%' || $1 || '%' OR u.full_name ILIKE '%' || $1 || '%')
+         AND ($2 = '' OR DATE(ar.record_time) >= $2::date)
+         AND ($3 = '' OR DATE(ar.record_time) <= $3::date)`,
+        [employeeCode, fromDate, toDate]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   try {
     const { employeeCode = '', fromDate = '', toDate = '' } = req.query;
 
