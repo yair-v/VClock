@@ -997,7 +997,72 @@ app.post('/api/admin/shutdown', authRequired, adminRequired, (req, res) => {
   res.json({ success: true });
   setTimeout(() => process.exit(0), 500);
 });
+app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, res) => {
+  try {
+    // עובדים ביום
+    const daily = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(DISTINCT user_id) as count
+      FROM attendance_records
+      WHERE record_type = 'in'
+      GROUP BY day
+      ORDER BY day ASC
+    `);
 
+    // כניסות ויציאות
+    const inOut = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(*) FILTER (WHERE record_type = 'in') as ins,
+             COUNT(*) FILTER (WHERE record_type = 'out') as outs
+      FROM attendance_records
+      GROUP BY day
+      ORDER BY day ASC
+    `);
+
+    // חיסורים
+    const absences = await query(`
+      SELECT
+        u.full_name,
+        COUNT(*) FILTER (
+          WHERE NOT EXISTS (
+            SELECT 1 FROM attendance_records ar
+            WHERE ar.user_id = u.id
+            AND DATE(ar.record_time) = d.day
+            AND ar.record_type = 'in'
+          )
+        ) as absences
+      FROM users u,
+      generate_series(
+        CURRENT_DATE - INTERVAL '30 days',
+        CURRENT_DATE,
+        '1 day'
+      ) as d(day)
+      WHERE u.role = 'employee'
+      GROUP BY u.full_name
+      ORDER BY absences DESC
+      LIMIT 10
+    `);
+
+    // Heatmap
+    const heatmap = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(*) as value
+      FROM attendance_records
+      WHERE record_type = 'in'
+      GROUP BY day
+    `);
+
+    res.json({
+      daily: daily.rows,
+      inOut: inOut.rows,
+      absences: absences.rows,
+      heatmap: heatmap.rows
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (req, res) => {

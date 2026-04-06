@@ -28,7 +28,81 @@ function arrayBufferToBase64(buffer) {
   for (let b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);
 }
+async function renderDashboardCharts() {
+  const data = await api('/api/admin/dashboard-stats');
 
+  renderDailyChart(data.daily);
+  renderInOutChart(data.inOut);
+  renderAbsenceChart(data.absences);
+  renderHeatmap(data.heatmap);
+}
+function renderDailyChart(data) {
+  const ctx = document.getElementById('chartDaily');
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.map(d => d.day),
+      datasets: [{
+        label: 'עובדים ביום',
+        data: data.map(d => d.count),
+        tension: 0.3
+      }]
+    }
+  });
+}
+function renderInOutChart(data) {
+  const ctx = document.getElementById('chartInOut');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.day),
+      datasets: [
+        {
+          label: 'כניסות',
+          data: data.map(d => d.ins)
+        },
+        {
+          label: 'יציאות',
+          data: data.map(d => d.outs)
+        }
+      ]
+    }
+  });
+}
+function renderAbsenceChart(data) {
+  const ctx = document.getElementById('chartAbsence');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.map(d => d.full_name),
+      datasets: [{
+        label: 'ימי חיסור',
+        data: data.map(d => d.absences)
+      }]
+    }
+  });
+}
+function renderHeatmap(data) {
+  const container = document.getElementById('heatmap');
+
+  container.innerHTML = '';
+
+  data.forEach(d => {
+    const div = document.createElement('div');
+    div.style.width = '12px';
+    div.style.height = '12px';
+    div.style.margin = '2px';
+
+    const intensity = Math.min(d.value / 5, 1);
+
+    div.style.background = `rgba(34,197,94,${intensity})`;
+
+    container.appendChild(div);
+  });
+}
 function saveAuth(token, user) {
   state.token = token;
   state.user = user;
@@ -833,6 +907,28 @@ async function loadDashboard() {
       }
       </div>
     `;
+    box.innerHTML += `
+  <div class="card">
+    <h3>📈 עובדים ביום</h3>
+    <canvas id="chartDaily"></canvas>
+  </div>
+
+  <div class="card">
+    <h3>📊 כניסות / יציאות</h3>
+    <canvas id="chartInOut"></canvas>
+  </div>
+
+  <div class="card">
+    <h3>🔥 הכי הרבה חיסורים</h3>
+    <canvas id="chartAbsence"></canvas>
+  </div>
+
+  <div class="card">
+    <h3>🟩 Heatmap נוכחות</h3>
+    <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
+  </div>
+`;
+    await renderDashboardCharts();
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
   }
