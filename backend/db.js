@@ -59,7 +59,12 @@ async function initDb() {
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
-  `);
+  `
+  );
+  await query(`
+  ALTER TABLE attendance_records
+  ADD COLUMN IF NOT EXISTS location_status TEXT DEFAULT 'ok'
+`);
 
   await query(`
   CREATE TABLE IF NOT EXISTS attendance_records (
