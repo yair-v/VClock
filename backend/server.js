@@ -152,10 +152,57 @@ app.get('/api/my-records', authRequired, async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY record_time DESC
-       LIMIT 100`,
+         AND DATE(record_time) = CURRENT_DATE
+       ORDER BY record_time DESC`,
       [req.user.id]
     );
+    app.get('/api/my-records-export', authRequired, async (req, res) => {
+      try {
+        const result = await query(
+          `SELECT
+         record_type,
+         work_day_type,
+         note,
+         latitude,
+         longitude,
+         location_status,
+         record_time
+       FROM attendance_records
+       WHERE user_id = $1
+       ORDER BY record_time DESC`,
+          [req.user.id]
+        );
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('My Attendance');
+
+        ws.columns = [
+          { header: 'Record Type', key: 'record_type', width: 14 },
+          { header: 'Work Day Type', key: 'work_day_type', width: 18 },
+          { header: 'Note', key: 'note', width: 30 },
+          { header: 'Latitude', key: 'latitude', width: 16 },
+          { header: 'Longitude', key: 'longitude', width: 16 },
+          { header: 'Location Status', key: 'location_status', width: 20 },
+          { header: 'Record Time', key: 'record_time', width: 25 }
+        ];
+
+        result.rows.forEach((r) => ws.addRow(r));
+
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename=VClock_My_Records_${req.user.employee_code}.xlsx`
+        );
+
+        await wb.xlsx.write(res);
+        res.end();
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
 
     res.json(result.rows);
   } catch (err) {

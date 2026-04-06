@@ -245,15 +245,20 @@ async function renderEmployee() {
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="topbar">
-        <div>
+        <div class="row">
+          <button class="btn btn-light" id="exportMyRecordsBtn" style="padding:8px 12px">אקסל</button>
+        </div>
+
+        <div style="text-align:right">
           <div class="badge">עובד</div>
-          <h1 class="title" style="margin:8px 0 4px">${state.user.full_name}</h1>
+            <h1 class="title" style="margin:8px 0 4px">${state.user.full_name}</h1>
           <div class="small">קוד עובד: ${state.user.employee_code}</div>
         </div>
-        <div class="row">
-          <button class="btn btn-light" id="logoutBtn">התנתק</button>
+
+          <div class="row">
+            <button class="btn btn-light" id="logoutBtn">התנתק</button>
+          </div>
         </div>
-      </div>
 
       <div class="card">
         <div id="msgBox" class="hidden"></div>
@@ -291,12 +296,36 @@ async function renderEmployee() {
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0">הדיווחים האחרונים שלי</h2>
+        <h2 style="margin-top:0"הדיווחים שלי להיום</h2>
         <div id="myRecords">טוען...</div>
       </div>
     </div>
   `;
+  document.getElementById('exportMyRecordsBtn').onclick = async () => {
+    try {
+      const res = await fetch('/api/my-records-export', {
+        headers: {
+          'Authorization': 'Bearer ' + state.token
+        }
+      });
 
+      if (!res.ok) {
+        throw new Error('הורדת האקסל נכשלה');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'VClock_My_Records.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      showMessage('error', err.message);
+    }
+  };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
     render();
@@ -390,7 +419,7 @@ async function renderEmployee() {
                   <td>${r.note || ''}</td>
                   <td>${fmtDateTime(r.record_time)}</td>
                 </tr>
-              `).join('') || '<tr><td colspan="4">אין נתונים</td></tr>'}
+              `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
             </tbody>
           </table>
         </div>
