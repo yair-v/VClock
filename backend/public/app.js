@@ -473,7 +473,7 @@ async function renderEmployee() {
       if (recordType === 'in' && serverMsg.includes('כניסה כפולה')) {
         msg = `שלום ${employeeName}, כבר קיימת כניסה פתוחה. אנא בדוק את הדיווחים בתחתית הדף.`;
       } else if (recordType === 'in' && serverMsg.includes('היום נסגר')) {
-        msg = `שלום ${employeeName}, יום העבודה נסגר וכרגע לא ניתן לבצע כניסה נוספת. יש לפנות למנהל.`;
+        msg = `שלום ${employeeName}, יום העבודה נסגר וכרגע אין אפשרות לבצע כניסה נוספת. מנהל יכול לפתוח עבורך מחדש את אפשרות הכניסה.`;
       } else if (recordType === 'out' && serverMsg.includes('יציאה ללא כניסה')) {
         msg = `שלום ${employeeName}, ניסית לבצע יציאה ללא כניסה, אנא בדוק את הדיווחים בתחתית הדף.`;
       }
@@ -579,7 +579,7 @@ async function loadDashboard() {
                         <td>${r.employee_code}</td>
                         <td>${r.full_name}</td>
                         <td>
-                          <button class="btn btn-primary" onclick="reopenDay(${r.id})">אשר פתיחה מחדש</button>
+                          <button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>
                         </td>
                       </tr>
                     `).join('')}
@@ -820,7 +820,7 @@ async function deleteUser(id) {
 }
 
 async function reopenDay(id) {
-  if (!confirm('לאשר פתיחה מחדש של היום לעובד?')) return;
+  if (!confirm('האם לפתוח מחדש לעובד את האפשרות לבצע כניסה?')) return;
 
   try {
     await api('/api/admin/users/' + id + '/reopen-day', {
@@ -828,7 +828,7 @@ async function reopenDay(id) {
       body: JSON.stringify({})
     });
 
-    alert('היום נפתח מחדש');
+    alert('אפשרות הכניסה נפתחה מחדש לעובד');
     loadUsers();
   } catch (err) {
     alert(err.message);
@@ -932,7 +932,7 @@ async function loadUsers() {
                   <td>
                     <div class="row">
                       <button class="btn btn-light" onclick="editUser(${r.id})">ערוך</button>
-                      ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">אשר פתיחה</button>` : ''}
+                     ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>` : ''}
                       <button class="btn btn-danger" onclick="deleteUser(${r.id})">מחק</button>
                     </div>
                   </td>
