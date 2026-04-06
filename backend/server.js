@@ -19,6 +19,20 @@ app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+function parseWorkDayTypes(value) {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function getSettingsRow() {
+  const result = await query(`SELECT * FROM settings WHERE id = 1`);
+  return result.rows[0];
+}
+
 function authRequired(req, res, next) {
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -46,10 +60,16 @@ app.get('/api/health', (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { employeeCode, password } = req.body;
+    const loginValue = String(employeeCode || '').trim();
 
     const result = await query(
-      `SELECT * FROM users WHERE employee_code = $1`,
-      [String(employeeCode)]
+      `SELECT *
+       FROM users
+       WHERE employee_code = $1
+          OR LOWER(full_name) = LOWER($1)
+       ORDER BY id ASC
+       LIMIT 1`,
+      [loginValue]
     );
 
     const user = result.rows[0];
@@ -91,6 +111,41 @@ app.get('/api/me', authRequired, (req, res) => {
   res.json({ user: req.user });
 });
 
+app.get('/api/my-status', authRequired, async (req, res) => {
+  try {
+    const userRes = await query(
+      `SELECT id, employee_code, full_name, role, is_active, day_closed
+       FROM users
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    const lastRes = await query(
+      `SELECT *
+       FROM attendance_records
+       WHERE user_id = $1
+       ORDER BY record_time DESC
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const settings = await getSettingsRow();
+
+    res.json({
+      user: userRes.rows[0],
+      lastRecord: lastRes.rows[0] || null,
+      workDayTypes: parseWorkDayTypes(settings.work_day_types),
+      settings: {
+        prevent_double_checkin: settings.prevent_double_checkin,
+        prevent_checkout_without_checkin: settings.prevent_checkout_without_checkin,
+        allow_multiple_sessions_per_day: settings.allow_multiple_sessions_per_day
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/my-records', authRequired, async (req, res) => {
   try {
     const result = await query(
@@ -110,7 +165,14 @@ app.get('/api/my-records', authRequired, async (req, res) => {
 
 app.post('/api/attendance', authRequired, async (req, res) => {
   try {
-    const { recordType, workDayType, note, latitude, longitude, location_status } = req.body;
+    const {
+      recordType,
+      workDayType,
+      note,
+      latitude,
+      longitude,
+      location_status
+    } = req.body;
 
     if (!['in', 'out'].includes(recordType)) {
       return res.status(400).json({ error: 'סוג דיווח לא תקין' });
@@ -120,10 +182,17 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'יש לבחור סוג יום עבודה' });
     }
 
-    const settingsRes = await query(
-      `SELECT * FROM settings WHERE id = 1`
+    const settings = await getSettingsRow();
+
+    const userRes = await query(
+      `SELECT * FROM users WHERE id = $1`,
+      [req.user.id]
     );
-    const settings = settingsRes.rows[0];
+    const user = userRes.rows[0];
+
+    if (!user) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
 
     const lastRes = await query(
       `SELECT *
@@ -133,8 +202,11 @@ app.post('/api/attendance', authRequired, async (req, res) => {
        LIMIT 1`,
       [req.user.id]
     );
-
     const lastRecord = lastRes.rows[0];
+
+    if (recordType === 'in' && user.day_closed) {
+      return res.status(400).json({ error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש' });
+    }
 
     if (
       recordType === 'in' &&
@@ -155,9 +227,21 @@ app.post('/api/attendance', authRequired, async (req, res) => {
 
     const result = await query(
       `INSERT INTO attendance_records
-      (user_id, record_type, work_day_type, note, latitude, longitude, location_status, ip_address, device_info, record_time, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
-      RETURNING *`,
+       (
+         user_id,
+         record_type,
+         work_day_type,
+         note,
+         latitude,
+         longitude,
+         location_status,
+         ip_address,
+         device_info,
+         record_time,
+         created_at
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW())
+       RETURNING *`,
       [
         req.user.id,
         recordType,
@@ -170,6 +254,15 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         req.headers['user-agent'] || ''
       ]
     );
+
+    if (recordType === 'out') {
+      await query(
+        `UPDATE users
+         SET day_closed = 1
+         WHERE id = $1`,
+        [req.user.id]
+      );
+    }
 
     res.json({
       success: true,
@@ -226,7 +319,15 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
       [employeeCode, fromDate, toDate]
     );
 
-    res.json(result.rows);
+    const rows = result.rows.map((r) => ({
+      ...r,
+      map_link:
+        r.latitude && r.longitude
+          ? `https://www.google.com/maps?q=${r.latitude},${r.longitude}`
+          : ''
+    }));
+
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -275,7 +376,14 @@ app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, r
 app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
   try {
     const result = await query(
-      `SELECT id, employee_code, full_name, role, is_active, created_at
+      `SELECT
+         id,
+         employee_code,
+         full_name,
+         role,
+         is_active,
+         day_closed,
+         created_at
        FROM users
        ORDER BY employee_code ASC`
     );
@@ -304,14 +412,23 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
     }
 
     await query(
-      `INSERT INTO users (employee_code, full_name, password_hash, role, is_active, created_at)
-       VALUES ($1,$2,$3,$4,$5,NOW())`,
+      `INSERT INTO users (
+         employee_code,
+         full_name,
+         password_hash,
+         role,
+         is_active,
+         day_closed,
+         created_at
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,NOW())`,
       [
         String(employee_code),
         String(full_name),
         bcrypt.hashSync(String(password), 10),
         role === 'admin' ? 'admin' : 'employee',
-        is_active ? 1 : 0
+        is_active ? 1 : 0,
+        0
       ]
     );
 
@@ -324,7 +441,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
 app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { full_name, password, role, is_active } = req.body;
+    const { full_name, password, role, is_active, day_closed } = req.body;
 
     const userRes = await query(
       `SELECT * FROM users WHERE id = $1`,
@@ -349,6 +466,11 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
         ? (is_active ? 1 : 0)
         : user.is_active;
 
+    const nextClosed =
+      typeof day_closed !== 'undefined'
+        ? (day_closed ? 1 : 0)
+        : user.day_closed;
+
     const nextPasswordHash =
       password && String(password).trim() !== ''
         ? bcrypt.hashSync(String(password), 10)
@@ -359,9 +481,27 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
        SET full_name = $1,
            password_hash = $2,
            role = $3,
-           is_active = $4
-       WHERE id = $5`,
-      [nextName, nextPasswordHash, nextRole, nextActive, id]
+           is_active = $4,
+           day_closed = $5
+       WHERE id = $6`,
+      [nextName, nextPasswordHash, nextRole, nextActive, nextClosed, id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/users/:id/reopen-day', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    await query(
+      `UPDATE users
+       SET day_closed = 0
+       WHERE id = $1`,
+      [id]
     );
 
     res.json({ success: true });
@@ -398,10 +538,12 @@ app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res)
 
 app.get('/api/admin/settings', authRequired, adminRequired, async (req, res) => {
   try {
-    const result = await query(
-      `SELECT * FROM settings WHERE id = 1`
-    );
-    res.json(result.rows[0]);
+    const settings = await getSettingsRow();
+
+    res.json({
+      ...settings,
+      work_day_types: parseWorkDayTypes(settings.work_day_types)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -409,16 +551,22 @@ app.get('/api/admin/settings', authRequired, adminRequired, async (req, res) => 
 
 app.put('/api/admin/settings', authRequired, adminRequired, async (req, res) => {
   try {
+    const workDayTypes = Array.isArray(req.body.work_day_types)
+      ? req.body.work_day_types.filter(Boolean)
+      : [];
+
     await query(
       `UPDATE settings
        SET prevent_double_checkin = $1,
            prevent_checkout_without_checkin = $2,
-           allow_multiple_sessions_per_day = $3
+           allow_multiple_sessions_per_day = $3,
+           work_day_types = $4
        WHERE id = 1`,
       [
         req.body.prevent_double_checkin ? 1 : 0,
         req.body.prevent_checkout_without_checkin ? 1 : 0,
-        req.body.allow_multiple_sessions_per_day ? 1 : 0
+        req.body.allow_multiple_sessions_per_day ? 1 : 0,
+        JSON.stringify(workDayTypes)
       ]
     );
 
@@ -439,6 +587,7 @@ app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
          ar.note,
          ar.latitude,
          ar.longitude,
+         ar.location_status,
          ar.record_time
        FROM attendance_records ar
        JOIN users u ON u.id = ar.user_id
@@ -456,6 +605,7 @@ app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
       { header: 'Note', key: 'note', width: 30 },
       { header: 'Latitude', key: 'latitude', width: 16 },
       { header: 'Longitude', key: 'longitude', width: 16 },
+      { header: 'Location Status', key: 'location_status', width: 20 },
       { header: 'Record Time', key: 'record_time', width: 25 }
     ];
 

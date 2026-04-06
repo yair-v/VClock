@@ -1,9 +1,10 @@
-
 const app = document.getElementById('app');
+
 const state = {
   token: localStorage.getItem('vclock_token') || '',
   user: JSON.parse(localStorage.getItem('vclock_user') || 'null'),
-  currentTab: 'dashboard'
+  currentTab: 'dashboard',
+  employeeStatus: null
 };
 
 function saveAuth(token, user) {
@@ -22,8 +23,12 @@ function clearAuth() {
 
 async function api(url, options = {}) {
   const headers = options.headers || {};
-  if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
-  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (state.token) {
+    headers['Authorization'] = 'Bearer ' + state.token;
+  }
 
   const res = await fetch(url, { ...options, headers });
   const contentType = res.headers.get('content-type') || '';
@@ -31,13 +36,18 @@ async function api(url, options = {}) {
   if (!res.ok) {
     let msg = 'Request failed';
     try {
-      const data = contentType.includes('application/json') ? await res.json() : await res.text();
+      const data = contentType.includes('application/json')
+        ? await res.json()
+        : await res.text();
       msg = data.error || data.details || data || msg;
     } catch { }
     throw new Error(msg);
   }
 
-  if (contentType.includes('application/json')) return res.json();
+  if (contentType.includes('application/json')) {
+    return res.json();
+  }
+
   return res;
 }
 
@@ -77,12 +87,12 @@ function renderLogin() {
         <div id="msgBox" class="hidden"></div>
         <form id="loginForm" class="grid">
           <div>
-            <label class="label">קוד עובד</label>
-            <input class="input" name="employeeCode" value="1001" required />
+            <label class="label">שם עובד או מספר עובד</label>
+            <input class="input" name="employeeCode" value="" required />
           </div>
           <div>
             <label class="label">סיסמה</label>
-            <input class="input" type="password" name="password" value="1234" required />
+            <input class="input" type="password" name="password" value="" required />
           </div>
           <button class="btn btn-primary btn-block" type="submit">התחבר</button>
         </form>
@@ -100,6 +110,7 @@ function renderLogin() {
     e.preventDefault();
     clearMessage();
     const fd = new FormData(e.target);
+
     try {
       const data = await api('/api/login', {
         method: 'POST',
@@ -114,6 +125,119 @@ function renderLogin() {
       showMessage('error', err.message);
     }
   };
+}
+
+function getCurrentMinutes() {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function isMealAllowed(mealType) {
+  const minutes = getCurrentMinutes();
+
+  if (mealType === 'morning') {
+    return minutes >= (8 * 60 + 30) && minutes <= (11 * 60 + 30);
+  }
+
+  if (mealType === 'noon') {
+    return minutes >= (12 * 60) && minutes <= (15 * 60);
+  }
+
+  if (mealType === 'evening') {
+    return minutes >= (19 * 60) && minutes <= (20 * 60 + 30);
+  }
+
+  return false;
+}
+
+async function requestMealLocationPermission() {
+  alert('על מנת לסמן ארוחה עליך לאשר את המיקום לצורך אישור העלות');
+
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject('NO_GPS');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve(pos),
+      () => reject('NO_PERMISSION'),
+      {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 0
+      }
+    );
+  });
+}
+
+function setupMealCheckboxes(canUseMeals) {
+  const morning = document.getElementById('mealMorning');
+  const noon = document.getElementById('mealNoon');
+  const evening = document.getElementById('mealEvening');
+  const info = document.getElementById('mealInfo');
+
+  if (!morning || !noon || !evening || !info) return;
+
+  function setDisabledState(disabled) {
+    morning.disabled = disabled;
+    noon.disabled = disabled;
+    evening.disabled = disabled;
+    if (disabled) {
+      morning.checked = false;
+      noon.checked = false;
+      evening.checked = false;
+    }
+  }
+
+  function updateMealAvailabilityText() {
+    if (!canUseMeals) {
+      info.textContent = 'ניתן לבחור ארוחות רק לאחר כניסה לעבודה.';
+      setDisabledState(true);
+      return;
+    }
+
+    setDisabledState(false);
+
+    const parts = [];
+    parts.push(`בוקר: ${isMealAllowed('morning') ? 'זמין' : 'לא זמין'}`);
+    parts.push(`צהריים: ${isMealAllowed('noon') ? 'זמין' : 'לא זמין'}`);
+    parts.push(`ערב: ${isMealAllowed('evening') ? 'זמין' : 'לא זמין'}`);
+    info.textContent = parts.join(' | ');
+  }
+
+  async function handleMealToggle(event, mealType) {
+    const checkbox = event.target;
+
+    if (!checkbox.checked) {
+      return;
+    }
+
+    if (!canUseMeals) {
+      checkbox.checked = false;
+      alert('ניתן לסמן ארוחות רק לאחר תחילת עבודה');
+      return;
+    }
+
+    if (!isMealAllowed(mealType)) {
+      checkbox.checked = false;
+      alert('הארוחה אינה זמינה בשעה זו');
+      return;
+    }
+
+    try {
+      await requestMealLocationPermission();
+    } catch (err) {
+      checkbox.checked = false;
+    }
+  }
+
+  morning.addEventListener('change', (e) => handleMealToggle(e, 'morning'));
+  noon.addEventListener('change', (e) => handleMealToggle(e, 'noon'));
+  evening.addEventListener('change', (e) => handleMealToggle(e, 'evening'));
+
+  updateMealAvailabilityText();
+  setInterval(updateMealAvailabilityText, 60000);
 }
 
 async function renderEmployee() {
@@ -137,33 +261,27 @@ async function renderEmployee() {
             <label class="label">תאריך ושעה</label>
             <input class="input" id="currentDateTime" readonly />
           </div>
+
           <div>
             <label class="label">סוג יום עבודה</label>
-            <select class="select" id="workDayType">
-              <option>יום רגיל</option>
-              <option>שישי</option>
-              <option>שבת</option>
-              <option>חג</option>
-              <option>חופשה</option>
-              <option>מחלה</option>
-              <option>מילואים</option>
-              <option>עבודה מהבית</option>
-              <option>אחר</option>
-            </select>
+            <select class="select" id="workDayType"></select>
           </div>
+
           <div>
             <label class="label">הערה</label>
             <textarea class="textarea" id="note"></textarea>
-            <div>
-              <label class="label">ארוחות</label>
-              <div class="row" style="margin-top:8px">
-                <label><input type="checkbox" id="mealMorning" /> א. בוקר</label>
-                <label><input type="checkbox" id="mealNoon" /> א. צהריים</label>
-                <label><input type="checkbox" id="mealEvening" /> א. ערב</label>
-              </div>
-              <div class="small" id="mealInfo" style="margin-top:8px"></div>
-            </div>
           </div>
+
+          <div>
+            <label class="label">ארוחות</label>
+            <div class="row" style="margin-top:8px">
+              <label><input type="checkbox" id="mealMorning" /> א. בוקר</label>
+              <label><input type="checkbox" id="mealNoon" /> א. צהריים</label>
+              <label><input type="checkbox" id="mealEvening" /> א. ערב</label>
+            </div>
+            <div class="small" id="mealInfo" style="margin-top:8px"></div>
+          </div>
+
           <div class="grid grid-2">
             <button class="btn btn-ok btn-block" id="checkInBtn">כניסה לעבודה</button>
             <button class="btn btn-danger btn-block" id="checkOutBtn">יציאה מהעבודה</button>
@@ -178,23 +296,91 @@ async function renderEmployee() {
     </div>
   `;
 
-  document.getElementById('logoutBtn').onclick = () => { clearAuth(); render(); };
+  document.getElementById('logoutBtn').onclick = () => {
+    clearAuth();
+    render();
+  };
 
   function updateClock() {
     const el = document.getElementById('currentDateTime');
     if (el) el.value = new Date().toLocaleString('he-IL');
   }
+
   updateClock();
   setInterval(updateClock, 1000);
+
+  async function loadEmployeeConfig() {
+    const status = await api('/api/my-status');
+    state.employeeStatus = status;
+
+    const select = document.getElementById('workDayType');
+    const options = status.workDayTypes && status.workDayTypes.length
+      ? status.workDayTypes
+      : ['יום רגיל'];
+
+    select.innerHTML = options
+      .map(v => `<option>${v}</option>`)
+      .join('');
+
+    const canUseMeals =
+      status.lastRecord &&
+      status.lastRecord.record_type === 'in' &&
+      !status.user.day_closed;
+
+    setupMealCheckboxes(!!canUseMeals);
+
+    const checkInBtn = document.getElementById('checkInBtn');
+    if (status.user.day_closed) {
+      checkInBtn.disabled = true;
+      checkInBtn.title = 'היום נסגר. יש לפנות למנהל לפתיחה מחדש';
+    } else {
+      checkInBtn.disabled = false;
+      checkInBtn.title = '';
+    }
+  }
 
   document.getElementById('checkInBtn').onclick = async () => {
     await submitAttendance('in');
   };
+
   document.getElementById('checkOutBtn').onclick = async () => {
+    const ok = confirm('האם העובד בטוח שהוא רוצה לסגור את היום?');
+    if (!ok) return;
     await submitAttendance('out');
   };
-  setupMealCheckboxes();
 
+  async function loadMyRecords() {
+    try {
+      const rows = await api('/api/my-records');
+
+      document.getElementById('myRecords').innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>סוג</th>
+                <th>סוג יום</th>
+                <th>הערה</th>
+                <th>תאריך ושעה</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr>
+                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                  <td>${r.work_day_type}</td>
+                  <td>${r.note || ''}</td>
+                  <td>${fmtDateTime(r.record_time)}</td>
+                </tr>
+              `).join('') || '<tr><td colspan="4">אין נתונים</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch (err) {
+      document.getElementById('myRecords').innerHTML = `<div class="error">${err.message}</div>`;
+    }
+  }
 
   async function submitAttendance(recordType) {
     let latitude = '';
@@ -259,135 +445,15 @@ async function renderEmployee() {
         `${recordType === 'in' ? 'כניסה' : 'יציאה'} נשמרה בהצלחה: ${fmtDateTime(result.record_time)}`
       );
 
+      await loadEmployeeConfig();
       loadMyRecords();
     } catch (err) {
       showMessage('error', err.message);
     }
   }
 
-  async function loadMyRecords() {
-    try {
-      const rows = await api('/api/my-records');
-      document.getElementById('myRecords').innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>סוג</th>
-                <th>סוג יום</th>
-                <th>הערה</th>
-                <th>תאריך ושעה</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map(r => `
-                <tr>
-                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                  <td>${r.work_day_type}</td>
-                  <td>${r.note || ''}</td>
-                  <td>${fmtDateTime(r.record_time)}</td>
-                </tr>
-              `).join('') || '<tr><td colspan="4">אין נתונים</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      `;
-    } catch (err) {
-      document.getElementById('myRecords').innerHTML = `<div class="error">${err.message}</div>`;
-    }
-  }
-
+  await loadEmployeeConfig();
   loadMyRecords();
-}
-function getCurrentMinutes() {
-  const now = new Date();
-  return now.getHours() * 60 + now.getMinutes();
-}
-
-function isMealAllowed(mealType) {
-  const minutes = getCurrentMinutes();
-
-  if (mealType === 'morning') {
-    return minutes >= (8 * 60 + 30) && minutes <= (11 * 60 + 30);
-  }
-
-  if (mealType === 'noon') {
-    return minutes >= (12 * 60) && minutes <= (15 * 60);
-  }
-
-  if (mealType === 'evening') {
-    return minutes >= (19 * 60) && minutes <= (20 * 60 + 30);
-  }
-
-  return false;
-}
-
-async function requestMealLocationPermission() {
-  alert('על מנת לסמן ארוחה עליך לאשר את המיקום לצורך אישור העלות');
-
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject('NO_GPS');
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve(pos),
-      () => reject('NO_PERMISSION'),
-      {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 0
-      }
-    );
-  });
-}
-
-function setupMealCheckboxes() {
-  const morning = document.getElementById('mealMorning');
-  const noon = document.getElementById('mealNoon');
-  const evening = document.getElementById('mealEvening');
-  const info = document.getElementById('mealInfo');
-
-  if (!morning || !noon || !evening || !info) return;
-
-  function updateMealAvailabilityText() {
-    const parts = [];
-
-    parts.push(`בוקר: ${isMealAllowed('morning') ? 'זמין' : 'לא זמין'}`);
-    parts.push(`צהריים: ${isMealAllowed('noon') ? 'זמין' : 'לא זמין'}`);
-    parts.push(`ערב: ${isMealAllowed('evening') ? 'זמין' : 'לא זמין'}`);
-
-    info.textContent = parts.join(' | ');
-  }
-
-  async function handleMealToggle(event, mealType) {
-    const checkbox = event.target;
-
-    if (!checkbox.checked) {
-      return;
-    }
-
-    if (!isMealAllowed(mealType)) {
-      alert('הארוחה אינה זמינה בשעה זו');
-      checkbox.checked = false;
-      return;
-    }
-
-    try {
-      await requestMealLocationPermission();
-    } catch (err) {
-      checkbox.checked = false;
-      alert('לא אושר מיקום. סימון הארוחה בוטל');
-    }
-  }
-
-  morning.addEventListener('change', (e) => handleMealToggle(e, 'morning'));
-  noon.addEventListener('change', (e) => handleMealToggle(e, 'noon'));
-  evening.addEventListener('change', (e) => handleMealToggle(e, 'evening'));
-
-  updateMealAvailabilityText();
-  setInterval(updateMealAvailabilityText, 60000);
 }
 
 async function renderAdmin() {
@@ -424,13 +490,20 @@ async function renderAdmin() {
     };
   });
 
-  document.getElementById('logoutBtn').onclick = () => { clearAuth(); render(); };
+  document.getElementById('logoutBtn').onclick = () => {
+    clearAuth();
+    render();
+  };
+
   document.getElementById('shutdownBtn').onclick = async () => {
     if (!confirm('לסגור את שרת VClock?')) return;
+
     try {
-      await api('/api/admin/shutdown', { method: 'POST', body: JSON.stringify({}) });
-      alert('השרת נסגר. אפשר גם להריץ Stop-VClock.bat');
-      setTimeout(() => window.close(), 500);
+      await api('/api/admin/shutdown', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      alert('השרת נסגר');
     } catch (err) {
       alert(err.message);
     }
@@ -453,7 +526,7 @@ async function loadDashboard() {
         <div class="kpi"><div>סה"כ עובדים</div><div class="num">${d.totalUsers}</div></div>
         <div class="kpi"><div>עובדים פעילים</div><div class="num">${d.activeUsers}</div></div>
         <div class="kpi"><div>סה"כ דיווחים</div><div class="num">${d.totalRecords}</div></div>
-        <div class="kpi"><div>דיווחים היום</div><div class="num">${d.todayRecords}</div></div>
+        <div class="kpi"><div>דיווחי היום</div><div class="num">${d.todayRecords}</div></div>
       </div>
       <div class="notice" style="margin-top:16px">
         זהו דשבורד בסיסי לשלב 1. בשלב הבא אפשר להוסיף גרפים, איחורים, שעות נוספות, חריגות ועוד.
@@ -468,7 +541,6 @@ async function loadReports() {
   const box = document.getElementById('tabContent');
   box.innerHTML = `
     <h2 style="margin-top:0">כל הדיווחים</h2>
-    <div id="msgBox" class="hidden"></div>
     <div class="grid grid-2">
       <div>
         <label class="label">עובד / קוד</label>
@@ -493,24 +565,24 @@ async function loadReports() {
   `;
 
   document.getElementById('searchBtn').onclick = doSearch;
-  document.getElementById('exportBtn').onclick = () => {
-    (async () => {
-      try {
-        const res = await fetch('/api/admin/export', { headers: { 'Authorization': 'Bearer ' + state.token } });
-        if (!res.ok) throw new Error('ייצוא נכשל');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'VClock_Attendance.xlsx';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        alert(err.message);
-      }
-    })();
+  document.getElementById('exportBtn').onclick = async () => {
+    try {
+      const res = await fetch('/api/admin/export', {
+        headers: { 'Authorization': 'Bearer ' + state.token }
+      });
+      if (!res.ok) throw new Error('ייצוא נכשל');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'VClock_Attendance.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
+    }
   };
 
   async function doSearch() {
@@ -520,7 +592,9 @@ async function loadReports() {
         fromDate: document.getElementById('fromDate').value || '',
         toDate: document.getElementById('toDate').value || ''
       });
+
       const rows = await api('/api/admin/reports?' + qs.toString());
+
       document.getElementById('reportsTable').innerHTML = `
         <div class="table-wrap">
           <table>
@@ -538,17 +612,20 @@ async function loadReports() {
             <tbody>
               ${rows.map(r => `
                 <tr>
-                <td>${r.employee_code}</td>
-                <td>${r.full_name}</td>
-                <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                <td>${r.work_day_type}</td>
-                <td>${r.note || ''}</td>
-                <td>
-                  ${r.location_status === 'no_permission' ? 'הרשאות מיקום סגורות' : (r.latitude && r.longitude
-          ? `<a href="https://www.google.com/maps?q=${r.latitude},${r.longitude}" target="_blank">פתח מפה</a>` : '')
+                  <td>${r.employee_code}</td>
+                  <td>${r.full_name}</td>
+                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                  <td>${r.work_day_type}</td>
+                  <td>${r.note || ''}</td>
+                  <td>
+                    ${r.location_status === 'no_permission'
+          ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+          : (r.map_link
+            ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>`
+            : '')
         }
-                </td>
-                <td>${fmtDateTime(r.record_time)}</td>
+                  </td>
+                  <td>${fmtDateTime(r.record_time)}</td>
                 </tr>
               `).join('') || '<tr><td colspan="7">אין נתונים</td></tr>'}
             </tbody>
@@ -623,11 +700,82 @@ async function loadMonthly() {
   loadData();
 }
 
+async function editUser(id) {
+  try {
+    const users = await api('/api/admin/users');
+    const user = users.find(u => u.id === id);
+
+    if (!user) {
+      alert('משתמש לא נמצא');
+      return;
+    }
+
+    const full_name = prompt('שם חדש:', user.full_name);
+    if (full_name === null) return;
+
+    const password = prompt('סיסמה חדשה (אפשר להשאיר ריק):', '');
+    if (password === null) return;
+
+    const role = prompt('תפקיד (admin / employee):', user.role);
+    if (role === null) return;
+
+    const is_active = confirm('האם המשתמש יהיה פעיל?');
+
+    await api('/api/admin/users/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({
+        full_name,
+        password,
+        role,
+        is_active,
+        day_closed: user.day_closed
+      })
+    });
+
+    alert('המשתמש עודכן בהצלחה');
+    loadUsers();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('האם למחוק את המשתמש?')) return;
+
+  try {
+    await api('/api/admin/users/' + id, {
+      method: 'DELETE'
+    });
+
+    alert('נמחק בהצלחה');
+    loadUsers();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function reopenDay(id) {
+  if (!confirm('לאשר פתיחה מחדש של היום לעובד?')) return;
+
+  try {
+    await api('/api/admin/users/' + id + '/reopen-day', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+
+    alert('היום נפתח מחדש');
+    loadUsers();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 async function loadUsers() {
   const box = document.getElementById('tabContent');
   box.innerHTML = `
     <h2 style="margin-top:0">ניהול משתמשים</h2>
     <div id="usersMsg" class="hidden"></div>
+
     <div class="card" style="background:#f8fafc">
       <h3 style="margin-top:0">הוספת משתמש</h3>
       <form id="addUserForm" class="grid grid-2">
@@ -658,12 +806,14 @@ async function loadUsers() {
         </div>
       </form>
     </div>
+
     <div id="usersTable">טוען...</div>
   `;
 
   document.getElementById('addUserForm').onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+
     try {
       await api('/api/admin/users', {
         method: 'POST',
@@ -675,6 +825,7 @@ async function loadUsers() {
           is_active: fd.get('is_active') === 'on'
         })
       });
+
       const msg = document.getElementById('usersMsg');
       msg.className = 'success';
       msg.textContent = 'המשתמש נשמר';
@@ -689,6 +840,7 @@ async function loadUsers() {
 
   try {
     const rows = await api('/api/admin/users');
+
     document.getElementById('usersTable').innerHTML = `
       <div class="table-wrap">
         <table>
@@ -698,34 +850,32 @@ async function loadUsers() {
               <th>שם</th>
               <th>תפקיד</th>
               <th>פעיל</th>
+              <th>יום נסגר</th>
               <th>נוצר</th>
+              <th>פעולות</th>
             </tr>
           </thead>
           <tbody>
             ${rows.map(r => `
-              <tr>
-                <td>${r.employee_code}</td>
-                <td>${r.full_name}</td>
-                <td>${r.role}</td>
-                <td>${r.is_active ? 'כן' : 'לא'}</td>
-                <td>${fmtDateTime(r.created_at)}</td>
-                <td>
-                  <div class="row">
-                    <button class="btn btn-light" onclick="editUser(${r.id})">
-                        ערוך
-                    </button>
-                    <button class="btn btn-danger" onclick="deleteUser(${r.id})">
-                        מחק
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            `).join('')}
+                <tr>
+                  <td>${r.employee_code}</td>
+                  <td>${r.full_name}</td>
+                  <td>${r.role}</td>
+                  <td>${r.is_active ? 'כן' : 'לא'}</td>
+                  <td>${r.day_closed ? 'כן' : 'לא'}</td>
+                  <td>${fmtDateTime(r.created_at)}</td>
+                  <td>
+                    <div class="row">
+                      <button class="btn btn-light" onclick="editUser(${r.id})">ערוך</button>
+                      ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">אשר פתיחה</button>` : ''}
+                      <button class="btn btn-danger" onclick="deleteUser(${r.id})">מחק</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')
+      || '<tr><td colspan="7">אין משתמשים</td></tr>'}
           </tbody>
         </table>
-      </div>
-      <div class="notice" style="margin-top:12px">
-        בשלב הזה יש הוספת משתמשים ותצוגה. בשלב הבא אפשר להוסיף עריכה, איפוס סיסמה ומחיקה.
       </div>
     `;
   } catch (err) {
@@ -735,14 +885,24 @@ async function loadUsers() {
 
 async function loadSettings() {
   const box = document.getElementById('tabContent');
+
   try {
     const s = await api('/api/admin/settings');
+
     box.innerHTML = `
       <h2 style="margin-top:0">הגדרות מערכת</h2>
       <div id="settingsMsg" class="hidden"></div>
+
       <div class="grid">
         <label><input type="checkbox" id="preventDouble" ${s.prevent_double_checkin ? 'checked' : ''} /> חסימת כניסה כפולה</label>
         <label><input type="checkbox" id="preventCheckout" ${s.prevent_checkout_without_checkin ? 'checked' : ''} /> חסימת יציאה בלי כניסה</label>
+        <label><input type="checkbox" id="allowMultipleSessions" ${s.allow_multiple_sessions_per_day ? 'checked' : ''} /> אפשר מספר סשנים ביום</label>
+
+        <div>
+          <label class="label">רשימת סוגי יום עבודה (שורה לכל ערך)</label>
+          <textarea class="textarea" id="workDayTypesInput">${(s.work_day_types || []).join('\n')}</textarea>
+        </div>
+
         <div>
           <button class="btn btn-primary" id="saveSettingsBtn">שמור הגדרות</button>
         </div>
@@ -751,13 +911,23 @@ async function loadSettings() {
 
     document.getElementById('saveSettingsBtn').onclick = async () => {
       try {
+        const workDayTypes = document
+          .getElementById('workDayTypesInput')
+          .value
+          .split('\n')
+          .map(v => v.trim())
+          .filter(Boolean);
+
         await api('/api/admin/settings', {
           method: 'PUT',
           body: JSON.stringify({
             prevent_double_checkin: document.getElementById('preventDouble').checked,
-            prevent_checkout_without_checkin: document.getElementById('preventCheckout').checked
+            prevent_checkout_without_checkin: document.getElementById('preventCheckout').checked,
+            allow_multiple_sessions_per_day: document.getElementById('allowMultipleSessions').checked,
+            work_day_types: workDayTypes
           })
         });
+
         const msg = document.getElementById('settingsMsg');
         msg.className = 'success';
         msg.textContent = 'ההגדרות נשמרו';
@@ -769,60 +939,6 @@ async function loadSettings() {
     };
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
-  }
-}
-async function editUser(id) {
-  try {
-    const users = await api('/api/admin/users');
-    const user = users.find(u => u.id === id);
-
-    if (!user) {
-      alert('משתמש לא נמצא');
-      return;
-    }
-
-    const full_name = prompt('שם חדש:', user.full_name);
-    if (full_name === null) return;
-
-    const password = prompt('סיסמה חדשה (אפשר להשאיר ריק):', '');
-    if (password === null) return;
-
-    const role = prompt('תפקיד (admin / employee):', user.role);
-    if (role === null) return;
-
-    const is_active = confirm('האם המשתמש פעיל?');
-
-    await api('/api/admin/users/' + id, {
-      method: 'PUT',
-      body: JSON.stringify({
-        full_name,
-        password,
-        role,
-        is_active
-      })
-    });
-
-    alert('עודכן בהצלחה');
-    loadUsers();
-
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function deleteUser(id) {
-  if (!confirm('האם למחוק את המשתמש?')) return;
-
-  try {
-    await api('/api/admin/users/' + id, {
-      method: 'DELETE'
-    });
-
-    alert('נמחק בהצלחה');
-    loadUsers();
-
-  } catch (err) {
-    alert(err.message);
   }
 }
 
