@@ -303,7 +303,7 @@ async function renderEmployee() {
   `;
   document.getElementById('exportMyRecordsBtn').onclick = async () => {
     try {
-      const res = await fetch('/api/my-records-export', {
+      const res = await fetch(window.location.origin + '/api/my-records-export', {
         headers: {
           'Authorization': 'Bearer ' + state.token
         }
