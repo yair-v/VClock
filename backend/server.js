@@ -290,11 +290,20 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
        WHERE DATE(record_time) = CURRENT_DATE`
     );
 
+    const actionRequests = await query(
+      `SELECT id, employee_code, full_name
+       FROM users
+       WHERE role = 'employee'
+         AND day_closed = 1
+       ORDER BY full_name ASC`
+    );
+
     res.json({
       totalUsers: totalUsers.rows[0].count,
       activeUsers: activeUsers.rows[0].count,
       totalRecords: totalRecords.rows[0].count,
-      todayRecords: todayRecords.rows[0].count
+      todayRecords: todayRecords.rows[0].count,
+      actionRequests: actionRequests.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -302,6 +311,40 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
 });
 
 app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
+  app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { work_day_type, note } = req.body;
+
+      await query(
+        `UPDATE attendance_records
+       SET work_day_type = $1,
+           note = $2
+       WHERE id = $3`,
+        [work_day_type || 'יום רגיל', note || '', id]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+
+      await query(
+        `DELETE FROM attendance_records
+       WHERE id = $1`,
+        [id]
+      );
+
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   try {
     const { employeeCode = '', fromDate = '', toDate = '' } = req.query;
 

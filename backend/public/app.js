@@ -344,25 +344,26 @@ async function renderEmployee() {
   };
 
   document.getElementById('checkOutBtn').onclick = async () => {
-    const now = new Date();
-    const hour = now.getHours();
+    try {
+      const status = await api('/api/my-status');
 
-    let greeting = 'שלום';
-    if (hour >= 5 && hour < 12) {
-      greeting = 'בוקר טוב';
-    } else if (hour >= 12 && hour < 18) {
-      greeting = 'צהריים טובים';
-    } else {
-      greeting = 'ערב טוב';
+      if (!status.lastRecord || status.lastRecord.record_type !== 'in') {
+        const employeeName = (state.user?.full_name || 'עובד').trim();
+        showMessage(
+          'error',
+          `שלום ${employeeName}, ניסית לבצע יציאה ללא כניסה, אנא בדוק את הדיווחים בתחתית הדף.`
+        );
+        return;
+      }
+
+      const employeeName = (state.user?.full_name || 'עובד').trim();
+      const ok = confirm(`שלום ${employeeName}, האם אתה בטוח שאתה רוצה לסגור את יום העבודה?`);
+      if (!ok) return;
+
+      await submitAttendance('out');
+    } catch (err) {
+      showMessage('error', err.message || 'שגיאה בבדיקת סטטוס עובד');
     }
-
-    const employeeName = (state.user?.full_name || 'עובד').trim();
-    const message = `${greeting} ${employeeName}, האם אתה בטוח שאתה רוצה לסגור את יום העבודה?`;
-
-    const ok = confirm(message);
-    if (!ok) return;
-
-    await submitAttendance('out');
   };
 
   async function loadMyRecords() {
@@ -464,18 +465,17 @@ async function renderEmployee() {
       await loadEmployeeConfig();
       loadMyRecords();
     } catch (err) {
-      let msg = err.message || 'אירעה שגיאה';
+      const employeeName = (state.user?.full_name || 'עובד').trim();
+      const serverMsg = err.message || '';
 
-      if (recordType === 'in' && msg.includes('כניסה כפולה')) {
-        msg = 'לא ניתן לבצע כניסה נוספת לפני יציאה מהעבודה.';
-      }
+      let msg = serverMsg || 'אירעה שגיאה';
 
-      if (recordType === 'in' && msg.includes('היום נסגר')) {
-        msg = 'יום העבודה כבר נסגר. יש לפנות למנהל כדי לאשר פתיחה מחדש.';
-      }
-
-      if (recordType === 'out' && msg.includes('יציאה ללא כניסה')) {
-        msg = 'לא ניתן לבצע יציאה לפני שבוצעה כניסה לעבודה.';
+      if (recordType === 'in' && serverMsg.includes('כניסה כפולה')) {
+        msg = `שלום ${employeeName}, כבר קיימת כניסה פתוחה. אנא בדוק את הדיווחים בתחתית הדף.`;
+      } else if (recordType === 'in' && serverMsg.includes('היום נסגר')) {
+        msg = `שלום ${employeeName}, יום העבודה נסגר וכרגע לא ניתן לבצע כניסה נוספת. יש לפנות למנהל.`;
+      } else if (recordType === 'out' && serverMsg.includes('יציאה ללא כניסה')) {
+        msg = `שלום ${employeeName}, ניסית לבצע יציאה ללא כניסה, אנא בדוק את הדיווחים בתחתית הדף.`;
       }
 
       showMessage('error', msg);
@@ -550,6 +550,7 @@ async function loadDashboard() {
   const box = document.getElementById('tabContent');
   try {
     const d = await api('/api/admin/dashboard');
+
     box.innerHTML = `
       <h2 style="margin-top:0">דשבורד</h2>
       <div class="grid grid-4">
@@ -558,8 +559,36 @@ async function loadDashboard() {
         <div class="kpi"><div>סה"כ דיווחים</div><div class="num">${d.totalRecords}</div></div>
         <div class="kpi"><div>דיווחי היום</div><div class="num">${d.todayRecords}</div></div>
       </div>
-      <div class="notice" style="margin-top:16px">
-        זהו דשבורד בסיסי לשלב 1. בשלב הבא אפשר להוסיף גרפים, איחורים, שעות נוספות, חריגות ועוד.
+
+      <div class="card" style="margin-top:16px;background:#f8fafc">
+        <h3 style="margin-top:0">בקשות עובדים לפעולה</h3>
+        ${d.actionRequests && d.actionRequests.length
+        ? `
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>קוד עובד</th>
+                      <th>שם עובד</th>
+                      <th>פעולה</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${d.actionRequests.map(r => `
+                      <tr>
+                        <td>${r.employee_code}</td>
+                        <td>${r.full_name}</td>
+                        <td>
+                          <button class="btn btn-primary" onclick="reopenDay(${r.id})">אשר פתיחה מחדש</button>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `
+        : `<div class="small">אין כרגע בקשות עובדים לפעולה.</div>`
+      }
       </div>
     `;
   } catch (err) {
@@ -641,23 +670,29 @@ async function loadReports() {
             </thead>
             <tbody>
               ${rows.map(r => `
-                <tr>
-                  <td>${r.employee_code}</td>
-                  <td>${r.full_name}</td>
-                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                  <td>${r.work_day_type}</td>
-                  <td>${r.note || ''}</td>
-                  <td>
-                    ${r.location_status === 'no_permission'
+               <tr>
+                <td>${r.employee_code}</td>
+                <td>${r.full_name}</td>
+                <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                <td>${r.work_day_type}</td>
+                <td>${r.note || ''}</td>
+                <td>
+                  ${r.location_status === 'no_permission'
           ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
           : (r.map_link
             ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>`
             : '')
         }
-                  </td>
-                  <td>${fmtDateTime(r.record_time)}</td>
-                </tr>
-              `).join('') || '<tr><td colspan="7">אין נתונים</td></tr>'}
+                </td>
+                <td>${fmtDateTime(r.record_time)}</td>
+                <td>
+                  <div class="row">
+                    <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
+                    <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
+                  </div>
+                </td>
+              </tr>
+              `).join('') || '<tr><td colspan="8">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -969,6 +1004,43 @@ async function loadSettings() {
     };
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
+  }
+}
+async function editReport(id, currentType, currentNote) {
+  const work_day_type = prompt('סוג יום עבודה:', currentType || '');
+  if (work_day_type === null) return;
+
+  const note = prompt('הערה:', currentNote || '');
+  if (note === null) return;
+
+  try {
+    await api('/api/admin/reports/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({
+        work_day_type,
+        note
+      })
+    });
+
+    alert('הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteReport(id) {
+  if (!confirm('האם למחוק את השורה?')) return;
+
+  try {
+    await api('/api/admin/reports/' + id, {
+      method: 'DELETE'
+    });
+
+    alert('השורה נמחקה');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
   }
 }
 
