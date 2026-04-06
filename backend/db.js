@@ -84,27 +84,8 @@ async function initDb() {
       id INTEGER PRIMARY KEY,
       prevent_double_checkin INTEGER NOT NULL DEFAULT 1,
       prevent_checkout_without_checkin INTEGER NOT NULL DEFAULT 1,
-      allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1,
-      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שבת","חג","חופשה","מחלה","מילואים","עבודה מהבית","אחר"]'
+      allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1
     )
-  `);
-
-  await query(`
-    INSERT INTO settings (
-      id,
-      prevent_double_checkin,
-      prevent_checkout_without_checkin,
-      allow_multiple_sessions_per_day,
-      work_day_types
-    )
-    VALUES (
-      1,
-      1,
-      1,
-      1,
-      '["יום רגיל","שישי","שבת","חג","חופשה","מחלה","מילואים","עבודה מהבית","אחר"]'
-    )
-    ON CONFLICT (id) DO NOTHING
   `);
 
   await query(`
@@ -140,6 +121,24 @@ async function initDb() {
   await query(`
     ALTER TABLE settings
     ADD COLUMN IF NOT EXISTS work_day_types TEXT DEFAULT '["יום רגיל","שישי","שבת","חג","חופשה","מחלה","מילואים","עבודה מהבית","אחר"]'
+  `);
+
+  await query(`
+    INSERT INTO settings (
+      id,
+      prevent_double_checkin,
+      prevent_checkout_without_checkin,
+      allow_multiple_sessions_per_day,
+      work_day_types
+    )
+    VALUES (
+      1,
+      1,
+      1,
+      1,
+      '["יום רגיל","שישי","שבת","חג","חופשה","מחלה","מילואים","עבודה מהבית","אחר"]'
+    )
+    ON CONFLICT (id) DO NOTHING
   `);
 
   await ensureSeedData();
