@@ -70,3 +70,56 @@ textarea:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
+
+/* ===== FIX FORM TEXT VISIBILITY ===== */
+
+input,
+select,
+textarea {
+  color: #111827 !important;
+  background: #ffffff !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #6b7280 !important;
+  opacity: 1 !important;
+}
+
+label,
+.form-group label,
+.checkbox-group label,
+.user-form label,
+.settings-form label {
+  color: #1f2937 !important;
+  font-weight: 600;
+}
+
+select option {
+  color: #111827 !important;
+  background: #ffffff !important;
+}
+
+input[type="checkbox"]+span,
+input[type="radio"]+span,
+.checkbox-label,
+.days-group label,
+.weekdays label {
+  color: #1f2937 !important;
+}
+
+button,
+.btn,
+.save-btn {
+  color: #ffffff !important;
+}
+
+.form-container,
+.user-form,
+.settings-form,
+.modal-content,
+.card,
+.panel,
+.section {
+  color: #111827 !important;
+}
