@@ -29,6 +29,10 @@ function base64urlToBuffer(base64url) {
   return bytes;
 }
 
+function isPasskeySupported() {
+  return !!window.PublicKeyCredential && (window.isSecureContext || location.hostname === 'localhost');
+}
+
 async function renderDashboardCharts() {
   const data = await api('/api/admin/dashboard-stats');
 
@@ -37,8 +41,10 @@ async function renderDashboardCharts() {
   renderAbsenceChart(data.absences);
   renderHeatmap(data.heatmap);
 }
+
 function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
+  if (!ctx || typeof Chart === 'undefined') return;
 
   new Chart(ctx, {
     type: 'line',
@@ -52,8 +58,10 @@ function renderDailyChart(data) {
     }
   });
 }
+
 function renderInOutChart(data) {
   const ctx = document.getElementById('chartInOut');
+  if (!ctx || typeof Chart === 'undefined') return;
 
   new Chart(ctx, {
     type: 'bar',
@@ -72,8 +80,10 @@ function renderInOutChart(data) {
     }
   });
 }
+
 function renderAbsenceChart(data) {
   const ctx = document.getElementById('chartAbsence');
+  if (!ctx || typeof Chart === 'undefined') return;
 
   new Chart(ctx, {
     type: 'bar',
@@ -86,8 +96,10 @@ function renderAbsenceChart(data) {
     }
   });
 }
+
 function renderHeatmap(data) {
   const container = document.getElementById('heatmap');
+  if (!container) return;
 
   container.innerHTML = '';
 
@@ -97,13 +109,13 @@ function renderHeatmap(data) {
     div.style.height = '12px';
     div.style.margin = '2px';
 
-    const intensity = Math.min(d.value / 5, 1);
-
+    const intensity = Math.min(Number(d.value || 0) / 5, 1);
     div.style.background = `rgba(34,197,94,${intensity})`;
 
     container.appendChild(div);
   });
 }
+
 function saveAuth(token, user) {
   state.token = token;
   state.user = user;
@@ -120,9 +132,11 @@ function clearAuth() {
 
 async function api(url, options = {}) {
   const headers = options.headers || {};
+
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
+
   if (state.token) {
     headers['Authorization'] = 'Bearer ' + state.token;
   }
@@ -228,12 +242,16 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
 }
 
 function renderLogin() {
+  const passkeyLabel = isPasskeySupported()
+    ? 'כניסה מהירה במכשיר הזה'
+    : 'זיהוי ביומטרי לא זמין במכשיר זה';
+
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="card hero-card center">
         <div class="badge">VClock 2026</div>
         <h1 class="title">מערכת שעון נוכחות</h1>
-        <p class="subtitle">כניסה עם זיהוי ביומטרי או סיסמה</p>
+        <p class="subtitle">כניסה עם סיסמה או עם Passkey / זיהוי ביומטרי של המכשיר</p>
         <div id="msgBox" class="hidden"></div>
 
         <div class="grid" style="text-align:right">
@@ -248,7 +266,7 @@ function renderLogin() {
         </div>
 
         <div class="hero-login-actions">
-          <button class="btn btn-primary btn-block" id="bioLoginBtn">כניסה עם זיהוי ביומטרי</button>
+          <button class="btn btn-primary btn-block" id="bioLoginBtn" ${isPasskeySupported() ? '' : 'disabled'}>${passkeyLabel}</button>
           <div class="login-divider">או</div>
           <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
         </div>
@@ -265,8 +283,9 @@ function renderLogin() {
 
   document.getElementById('passwordLoginBtn').onclick = async () => {
     clearMessage();
+
     try {
-      const employeeCode = document.getElementById('loginEmployeeCode').value;
+      const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
       const password = document.getElementById('loginPassword').value;
 
       const data = await api('/api/login', {
@@ -282,24 +301,19 @@ function renderLogin() {
     }
   };
 
-  if (!window.PublicKeyCredential) {
-    showMessage('error', 'המכשיר לא תומך בזיהוי ביומטרי');
-    return;
-  }
-
   document.getElementById('bioLoginBtn').onclick = async () => {
     clearMessage();
 
     try {
-      if (!window.PublicKeyCredential) {
-        showMessage('error', 'המכשיר או הדפדפן לא תומכים בזיהוי ביומטרי');
+      if (!isPasskeySupported()) {
+        showMessage('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
         return;
       }
 
       const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
 
       if (!employeeCode) {
-        showMessage('error', 'יש להזין שם עובד או מספר עובד');
+        showMessage('error', 'יש להזין שם עובד או מספר עובד לפני כניסה מהירה');
         return;
       }
 
@@ -312,7 +326,7 @@ function renderLogin() {
       const options = await res.json();
 
       if (!res.ok || !options) {
-        showMessage('error', options?.error || 'שגיאה בקבלת נתוני ביומטרי');
+        showMessage('error', options?.error || 'שגיאה בקבלת נתוני כניסה מהירה');
         return;
       }
 
@@ -322,7 +336,7 @@ function renderLogin() {
       }
 
       if (!options.allowCredentials || !options.allowCredentials.length) {
-        showMessage('error', 'אין זיהוי ביומטרי למשתמש זה. יש להפעיל קודם זיהוי ביומטרי לאחר התחברות רגילה.');
+        showMessage('error', 'לא הופעלה כניסה מהירה עבור משתמש זה. התחבר בסיסמה והפעל קודם זיהוי ביומטרי.');
         return;
       }
 
@@ -340,7 +354,7 @@ function renderLogin() {
           publicKey: options
         });
       } catch (err) {
-        console.error('Biometric get failed:', err);
+        console.error('Passkey login canceled/failed:', err);
         showMessage('error', 'האימות הביומטרי בוטל או נכשל');
         return;
       }
@@ -381,10 +395,9 @@ function renderLogin() {
       saveAuth(data.token, data.user);
       toast('success', 'התחברת עם זיהוי ביומטרי');
       render();
-
     } catch (err) {
       console.error('Biometric login error:', err);
-      showMessage('error', 'שגיאה בזיהוי ביומטרי');
+      showMessage('error', 'שגיאה בכניסה מהירה');
     }
   };
 }
@@ -445,6 +458,7 @@ function setupMealCheckboxes(canUseMeals) {
     morning.disabled = disabled;
     noon.disabled = disabled;
     evening.disabled = disabled;
+
     if (disabled) {
       morning.checked = false;
       noon.checked = false;
@@ -503,6 +517,10 @@ function setupMealCheckboxes(canUseMeals) {
 }
 
 async function renderEmployee() {
+  const passkeyButtonLabel = isPasskeySupported()
+    ? 'הפעל כניסה מהירה'
+    : 'ביומטרי לא זמין';
+
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="topbar">
@@ -512,15 +530,15 @@ async function renderEmployee() {
 
         <div style="text-align:right">
           <div class="badge">עובד</div>
-            <h1 class="title" style="margin:8px 0 4px">${state.user.full_name}</h1>
+          <h1 class="title" style="margin:8px 0 4px">${state.user.full_name}</h1>
           <div class="small">קוד עובד: ${state.user.employee_code}</div>
         </div>
 
-          <div class="row">
-            <button class="btn btn-light" id="logoutBtn">התנתק</button>
-            <button class="btn btn-ghost" id="registerPasskeyBtn">הפעל זיהוי ביומטרי</button>
-          </div>
+        <div class="row">
+          <button class="btn btn-light" id="logoutBtn">התנתק</button>
+          <button class="btn btn-ghost" id="registerPasskeyBtn" ${isPasskeySupported() ? '' : 'disabled'}>${passkeyButtonLabel}</button>
         </div>
+      </div>
 
       <div class="card">
         <div id="msgBox" class="hidden"></div>
@@ -558,11 +576,12 @@ async function renderEmployee() {
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0"הדיווחים שלי להיום</h2>
+        <h2 style="margin-top:0">הדיווחים שלי להיום</h2>
         <div id="myRecords">טוען...</div>
       </div>
     </div>
   `;
+
   document.getElementById('exportMyRecordsBtn').onclick = async () => {
     try {
       const url = window.location.origin + '/api/my-records-export';
@@ -574,7 +593,6 @@ async function renderEmployee() {
         }
       });
 
-      // 🔴 בדיקה אם קיבלנו HTML בטעות
       const contentType = res.headers.get('content-type') || '';
 
       if (!res.ok || contentType.includes('text/html')) {
@@ -584,7 +602,6 @@ async function renderEmployee() {
       }
 
       const blob = await res.blob();
-
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -593,15 +610,15 @@ async function renderEmployee() {
       a.click();
       a.remove();
       URL.revokeObjectURL(downloadUrl);
-
     } catch (err) {
       showMessage('error', err.message);
     }
   };
+
   document.getElementById('registerPasskeyBtn').onclick = async () => {
     try {
-      if (!window.PublicKeyCredential) {
-        toast('error', 'המכשיר או הדפדפן לא תומכים בזיהוי ביומטרי');
+      if (!isPasskeySupported()) {
+        toast('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
         return;
       }
 
@@ -632,7 +649,7 @@ async function renderEmployee() {
           publicKey: options
         });
       } catch (err) {
-        console.error('Biometric register failed:', err);
+        console.error('Passkey register canceled/failed:', err);
         toast('error', 'רישום הזיהוי הביומטרי בוטל או נכשל');
         return;
       }
@@ -659,7 +676,7 @@ async function renderEmployee() {
       });
 
       if (result.success) {
-        toast('success', 'הזיהוי הביומטרי הופעל בהצלחה');
+        toast('success', 'הכניסה המהירה הופעלה בהצלחה במכשיר זה');
       } else {
         toast('error', 'רישום ביומטרי נכשל');
       }
@@ -749,29 +766,29 @@ async function renderEmployee() {
       const rows = await api('/api/my-records');
 
       document.getElementById('myRecords').innerHTML = `
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>סוג</th>
-              <th>סוג יום</th>
-              <th>הערה</th>
-              <th>תאריך ושעה</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map(r => `
+        <div class="table-wrap">
+          <table>
+            <thead>
               <tr>
-                <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                <td>${r.work_day_type}</td>
-                <td>${r.note || ''}</td>
-                <td>${fmtDateTime(r.record_time)}</td>
+                <th>סוג</th>
+                <th>סוג יום</th>
+                <th>הערה</th>
+                <th>תאריך ושעה</th>
               </tr>
-            `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    `;
+            </thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr>
+                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                  <td>${r.work_day_type}</td>
+                  <td>${r.note || ''}</td>
+                  <td>${fmtDateTime(r.record_time)}</td>
+                </tr>
+              `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      `;
     } catch (err) {
       document.getElementById('myRecords').innerHTML = `<div class="error">${err.message}</div>`;
     }
@@ -848,8 +865,14 @@ async function renderEmployee() {
 
       let msg = serverMsg || 'אירעה שגיאה';
 
-      if (recordType === 'in' && serverMsg.includes('כניסה כפולה')) {
-        msg = `שלום ${employeeName}, כבר קיימת כניסה פתוחה. אנא בדוק את הדיווחים בתחתית הדף, אם זאת אינה טעות אנא פנה למנהל המחלקה.`;
+      if (
+        recordType === 'in' &&
+        (
+          serverMsg.includes('כניסה כפולה') ||
+          serverMsg.includes('כניסה שנייה באותו היום')
+        )
+      ) {
+        msg = 'לא ניתן לבצע כניסה שנייה באותו היום ויש לפנות למנהל המחלקה על מנת לשחרר את הרשומה';
       } else if (recordType === 'in' && serverMsg.includes('היום נסגר')) {
         msg = `שלום ${employeeName}, יום העבודה נסגר וכרגע אין אפשרות לבצע כניסה נוספת. מנהל יכול לפתוח עבורך מחדש את אפשרות הכניסה.`;
       } else if (recordType === 'out' && serverMsg.includes('יציאה ללא כניסה')) {
@@ -942,54 +965,56 @@ async function loadDashboard() {
         <h3 style="margin-top:0">בקשות עובדים לפעולה</h3>
         ${d.actionRequests && d.actionRequests.length
         ? `
-              <div class="table-wrap">
-                <table>
-                  <thead>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>קוד עובד</th>
+                    <th>שם עובד</th>
+                    <th>פעולה</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${d.actionRequests.map(r => `
                     <tr>
-                      <th>קוד עובד</th>
-                      <th>שם עובד</th>
-                      <th>פעולה</th>
+                      <td>${r.employee_code}</td>
+                      <td>${r.full_name}</td>
+                      <td>
+                        <button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    ${d.actionRequests.map(r => `
-                      <tr>
-                        <td>${r.employee_code}</td>
-                        <td>${r.full_name}</td>
-                        <td>
-                          <button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>
-                        </td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>
-            `
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `
         : `<div class="small">אין כרגע בקשות עובדים לפעולה.</div>`
       }
       </div>
     `;
+
     box.innerHTML += `
-  <div class="card">
-    <h3>📈 עובדים ביום</h3>
-    <canvas id="chartDaily"></canvas>
-  </div>
+      <div class="card">
+        <h3>📈 עובדים ביום</h3>
+        <canvas id="chartDaily"></canvas>
+      </div>
 
-  <div class="card">
-    <h3>📊 כניסות / יציאות</h3>
-    <canvas id="chartInOut"></canvas>
-  </div>
+      <div class="card">
+        <h3>📊 כניסות / יציאות</h3>
+        <canvas id="chartInOut"></canvas>
+      </div>
 
-  <div class="card">
-    <h3>🔥 הכי הרבה חיסורים</h3>
-    <canvas id="chartAbsence"></canvas>
-  </div>
+      <div class="card">
+        <h3>🔥 הכי הרבה חיסורים</h3>
+        <canvas id="chartAbsence"></canvas>
+      </div>
 
-  <div class="card">
-    <h3>🟩 Heatmap נוכחות</h3>
-    <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
-  </div>
-`;
+      <div class="card">
+        <h3>🟩 Heatmap נוכחות</h3>
+        <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
+      </div>
+    `;
+
     await renderDashboardCharts();
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
@@ -1083,39 +1108,37 @@ async function loadReports() {
             </thead>
             <tbody>
               ${rows.map(r => `
-                  <tr>
-                    <td>
-                      <input
-                        type="checkbox"
-                        class="report-row-checkbox"
-                        value="${r.id}"
-                        onchange="toggleReportSelection(${r.id}, this.checked)"
-                      />
-                    </td>
-                    <td>${r.employee_code}</td>
-                    <td>${r.full_name}</td>
-                    <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                    <td>${r.work_day_type}</td>
-                    <td>${r.note || ''}</td>
-                    <td>
-                      ${r.location_status === 'no_permission'
+                <tr>
+                  <td>
+                    <input
+                      type="checkbox"
+                      class="report-row-checkbox"
+                      value="${r.id}"
+                      onchange="toggleReportSelection(${r.id}, this.checked)"
+                    />
+                  </td>
+                  <td>${r.employee_code}</td>
+                  <td>${r.full_name}</td>
+                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                  <td>${r.work_day_type}</td>
+                  <td>${r.note || ''}</td>
+                  <td>
+                    ${r.location_status === 'no_permission'
           ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
           : (r.map_link
             ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>`
             : '')
         }
-                    </td>
-                    <td>${fmtDateTime(r.record_time)}</td>
-                    <td>
-                      <div class="row">
-                        <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
-                        <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')
-        || '<tr><td colspan="9">אין נתונים</td></tr>'
-        }
+                  </td>
+                  <td>${fmtDateTime(r.record_time)}</td>
+                  <td>
+                    <div class="row">
+                      <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
+                      <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('') || '<tr><td colspan="9">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1352,23 +1375,22 @@ async function loadUsers() {
           </thead>
           <tbody>
             ${rows.map(r => `
-                <tr>
-                  <td>${r.employee_code}</td>
-                  <td>${r.full_name}</td>
-                  <td>${r.role}</td>
-                  <td>${r.is_active ? 'כן' : 'לא'}</td>
-                  <td>${r.day_closed ? 'כן' : 'לא'}</td>
-                  <td>${fmtDateTime(r.created_at)}</td>
-                  <td>
-                    <div class="row">
-                      <button class="btn btn-light" onclick="editUser(${r.id})">ערוך</button>
-                     ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>` : ''}
-                      <button class="btn btn-danger" onclick="deleteUser(${r.id})">מחק</button>
-                    </div>
-                  </td>
-                </tr>
-              `).join('')
-      || '<tr><td colspan="7">אין משתמשים</td></tr>'}
+              <tr>
+                <td>${r.employee_code}</td>
+                <td>${r.full_name}</td>
+                <td>${r.role}</td>
+                <td>${r.is_active ? 'כן' : 'לא'}</td>
+                <td>${r.day_closed ? 'כן' : 'לא'}</td>
+                <td>${fmtDateTime(r.created_at)}</td>
+                <td>
+                  <div class="row">
+                    <button class="btn btn-light" onclick="editUser(${r.id})">ערוך</button>
+                    ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>` : ''}
+                    <button class="btn btn-danger" onclick="deleteUser(${r.id})">מחק</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('') || '<tr><td colspan="7">אין משתמשים</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1436,6 +1458,7 @@ async function loadSettings() {
     box.innerHTML = `<div class="error">${err.message}</div>`;
   }
 }
+
 async function editReport(id, currentType, currentNote) {
   const work_day_type = prompt('סוג יום עבודה:', currentType || '');
   if (work_day_type === null) return;
@@ -1473,6 +1496,7 @@ async function deleteReport(id) {
     alert(err.message);
   }
 }
+
 function toggleReportSelection(id, checked) {
   const numId = parseInt(id, 10);
 
