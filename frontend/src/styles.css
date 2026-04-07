@@ -141,7 +141,7 @@ button,
 input,
 select,
 textarea {
-  background: #ffffff !important;
+  background: #fa0000 !important;
   color: #111827 !important;
   border: 1px solid #9ca3af !important;
 }
@@ -149,7 +149,7 @@ textarea {
 /* טקסט בתוך select */
 select option {
   color: #111827 !important;
-  background: #ffffff !important;
+  background: #00eeff !important;
 }
 
 /* כותרות */
