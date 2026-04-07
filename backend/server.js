@@ -201,7 +201,7 @@ app.post('/api/passkeys/register/verify', authRequired, async (req, res) => {
       [
         req.user.id,
         Buffer.from(`vclock:${req.user.id}`, 'utf8').toString('base64url'),
-        registrationInfo.credential.id,
+        Buffer.from(registrationInfo.credential.id).toString('base64url'),
         registrationInfo.credential.publicKey.toString('base64url'),
         registrationInfo.credential.counter,
         registrationInfo.credentialDeviceType || '',
@@ -242,13 +242,13 @@ app.post('/api/passkeys/auth/options', async (req, res) => {
     const options = await generateAuthenticationOptions({
       rpID: RP_ID,
       allowCredentials: passkeys.rows.map(p => ({
-        id: p.credential_id,
+        id: Buffer.from(p.credential_id, 'base64url'),
         type: 'public-key',
         transports: JSON.parse(p.transports || '[]'),
       })),
       userVerification: 'preferred',
-      timeout: 60000,
     });
+
 
     req.app.locals.passkeyAuthChallenges = req.app.locals.passkeyAuthChallenges || new Map();
     req.app.locals.passkeyAuthChallenges.set(String(user.id), options.challenge);

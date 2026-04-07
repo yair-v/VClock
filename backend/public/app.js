@@ -9,6 +9,23 @@ const state = {
   modal: null
 };
 
+function bufferToBase64url(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function base64urlToBuffer(base64url) {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(base64);
+  const buffer = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    buffer[i] = binary.charCodeAt(i);
+  }
+  return buffer;
+}
+
 function base64ToUint8Array(base64) {
   const padding = '='.repeat((4 - base64.length % 4) % 4);
   const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -322,15 +339,20 @@ function renderLogin() {
         }));
       }
 
-      // 3. בקשת ביומטרי מהדפדפן
+      // 3. המרה ל-WebAuthn format
+      options.challenge = base64urlToBuffer(options.challenge);
+
+      if (options.allowCredentials) {
+        options.allowCredentials = options.allowCredentials.map(c => ({
+          ...c,
+          id: base64urlToBuffer(c.id)
+        }));
+      }
+
+      // 4. בקשת ביומטרי מהדפדפן
       const credential = await navigator.credentials.get({
         publicKey: options
       });
-
-      if (!credential) {
-        showMessage('error', 'האימות הביומטרי בוטל');
-        return;
-      }
 
       // 4. שליחה לשרת
       const verifyRes = await fetch('/api/passkeys/auth/verify', {
