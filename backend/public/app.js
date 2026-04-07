@@ -343,11 +343,26 @@ function renderLogin() {
           id: base64urlToBuffer(c.id)
         }));
       }
-
+      if (!options.allowCredentials || options.allowCredentials.length === 0) {
+        showMessage('error', 'אין זיהוי ביומטרי למשתמש זה. יש להפעיל קודם.');
+        return;
+      }
       // בקשת ביומטרי
-      const credential = await navigator.credentials.get({
-        publicKey: options
-      });
+      let credential;
+
+      try {
+        credential = await navigator.credentials.get({
+          publicKey: options
+        });
+      } catch (err) {
+        showMessage('error', 'האימות הביומטרי בוטל או נכשל');
+        return;
+      }
+
+      if (!credential || !credential.response) {
+        showMessage('error', 'לא התקבל זיהוי ביומטרי תקין');
+        return;
+      }
 
       // 4. שליחה לשרת
       const verifyRes = await fetch('/api/passkeys/auth/verify', {
