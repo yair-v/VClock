@@ -276,6 +276,35 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
   };
 }
 
+
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
+
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    toast('success', 'החג נמחק');
+    await loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    await loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function renderLogin() {
   app.innerHTML = `
     <div class="mobile-shell">
@@ -321,35 +350,8 @@ function renderLogin() {
 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
-      
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
 
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function setReportApproval(id, approval_status) {
-  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-  if (manager_note === null) return;
-
-  try {
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-render();
+      render();
     } catch (err) {
       showMessage('error', err.message);
     }
@@ -572,35 +574,8 @@ async function renderEmployee() {
   };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
 
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function setReportApproval(id, approval_status) {
-  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-  if (manager_note === null) return;
-
-  try {
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-render();
+    render();
   };
 
   function updateClock() {
@@ -850,7 +825,7 @@ async function renderAdmin() {
         <div class="tab ${state.currentTab === 'settings' ? 'active' : ''}" data-tab="settings">הגדרות</div>
       </div>
 
-      <div id="tabContent" class="card">טוען...</div>
+      <div id="tabContent" class="card admin-content-card">טוען...</div>
     </div>
   `;
 
@@ -863,35 +838,8 @@ async function renderAdmin() {
 
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
 
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function setReportApproval(id, approval_status) {
-  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-  if (manager_note === null) return;
-
-  try {
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-render();
+    render();
   };
 
   document.getElementById('shutdownBtn').onclick = async () => {
@@ -929,7 +877,7 @@ async function loadDashboard() {
         <div class="kpi"><div>דיווחי היום</div><div class="num">${d.todayRecords}</div></div>
       </div>
 
-      <div class="card" style="margin-top:16px;background:#f8fafc">
+      <div class="card" style="margin-top:16px">
         <h3 style="margin-top:0">בקשות עובדים לפעולה</h3>
         ${d.actionRequests && d.actionRequests.length
         ? `
@@ -1029,7 +977,7 @@ async function loadReports() {
 
     <div id="reportsTable" style="margin-top:14px">טוען...</div>
 
-    <div class="card" style="margin-top:16px;background:#f8fafc">
+    <div class="card" style="margin-top:16px">
       <h3 style="margin-top:0">לוג פעולות ודיווחים</h3>
       <div class="row" style="margin-bottom:12px">
         <button class="btn btn-light" id="reloadLogsBtn">רענן לוג</button>
@@ -1119,9 +1067,9 @@ async function loadReports() {
                     <td>${r.note || ''}</td>
                     <td>
                       ${r.location_status === 'no_permission'
-                        ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
-                        : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
-                      }
+          ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+          : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
+        }
                     </td>
                     <td>${fmtDateTime(r.record_time)}</td>
                     <td>
@@ -1353,7 +1301,7 @@ async function loadUsers() {
     <h2 style="margin-top:0">ניהול משתמשים</h2>
     <div id="usersMsg" class="hidden"></div>
 
-    <div class="card" style="background:#f8fafc">
+    <div class="card">
       <h3 style="margin-top:0">הוספת משתמש</h3>
       <form id="addUserForm" class="grid grid-2">
         <div>
@@ -1509,7 +1457,7 @@ async function loadSettings() {
       <h2 style="margin-top:0">הגדרות מערכת וקבוצות</h2>
       <div id="settingsMsg" class="hidden"></div>
 
-      <div class="card" style="background:#f8fafc">
+      <div class="card">
         <h3 style="margin-top:0">הגדרות כלליות</h3>
         <div class="grid">
           <label><input type="checkbox" id="preventDouble" ${s.prevent_double_checkin ? 'checked' : ''} /> חסימת כניסה כפולה</label>
@@ -1527,7 +1475,7 @@ async function loadSettings() {
         </div>
       </div>
 
-      <div class="card" style="background:#f8fafc">
+      <div class="card">
         <h3 style="margin-top:0">ניהול חגים</h3>
         <form id="addHolidayForm" class="grid grid-2">
           <div>
@@ -1564,7 +1512,7 @@ async function loadSettings() {
         </div>
       </div>
 
-      <div class="card" style="background:#f8fafc">
+      <div class="card">
         <h3 style="margin-top:0">ניהול קבוצות משתמשים</h3>
         <form id="addWorkGroupForm" class="grid">
           <div class="grid grid-2">
@@ -1619,7 +1567,7 @@ async function loadSettings() {
         </div>
       </div>
 
-      <div class="card" style="background:#f8fafc">
+      <div class="card">
         <h3 style="margin-top:0">שיוך קבוצות וימי עבודה לעובדים</h3>
         <div class="table-wrap">
           <table>
