@@ -232,7 +232,7 @@ function renderLogin() {
       <div class="card hero-card center">
         <div class="badge">VClock 2026</div>
         <h1 class="title">מערכת שעון נוכחות</h1>
-        <p class="subtitle">כניסה עם זיהוי ביומטרי או סיסמה</p>
+        <p class="subtitle">הכנס שם משתמש או קוד עובד + סיסמה</p>
         <div id="msgBox" class="hidden"></div>
 
         <div class="grid" style="text-align:right">
@@ -497,7 +497,7 @@ async function renderEmployee() {
 
           <div class="row">
             <button class="btn btn-light" id="logoutBtn">התנתק</button>
-            <button class="btn btn-ghost" id="registerPasskeyBtn">הפעל זיהוי ביומטרי</button>
+      
           </div>
         </div>
 
