@@ -247,6 +247,7 @@ app.post('/api/passkeys/auth/options', async (req, res) => {
         transports: JSON.parse(p.transports || '[]'),
       })),
       userVerification: 'preferred',
+      timeout: 60000,
     });
 
 

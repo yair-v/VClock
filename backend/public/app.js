@@ -18,33 +18,17 @@ function bufferToBase64url(buffer) {
 
 function base64urlToBuffer(base64url) {
   const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-  const binary = atob(base64);
-  const buffer = new Uint8Array(binary.length);
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(base64 + padding);
+  const bytes = new Uint8Array(binary.length);
+
   for (let i = 0; i < binary.length; i++) {
-    buffer[i] = binary.charCodeAt(i);
+    bytes[i] = binary.charCodeAt(i);
   }
-  return buffer;
+
+  return bytes;
 }
 
-function base64ToUint8Array(base64) {
-  const padding = '='.repeat((4 - base64.length % 4) % 4);
-  const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-
-  const rawData = atob(base64Safe);
-  const output = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    output[i] = rawData.charCodeAt(i);
-  }
-  return output;
-}
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary);
-}
 async function renderDashboardCharts() {
   const data = await api('/api/admin/dashboard-stats');
 
@@ -307,14 +291,18 @@ function renderLogin() {
     clearMessage();
 
     try {
-      const employeeCode = document.getElementById('loginEmployeeCode').value;
+      if (!window.PublicKeyCredential) {
+        showMessage('error', 'המכשיר או הדפדפן לא תומכים בזיהוי ביומטרי');
+        return;
+      }
+
+      const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
 
       if (!employeeCode) {
         showMessage('error', 'יש להזין שם עובד או מספר עובד');
         return;
       }
 
-      // 1. קבלת options מהשרת
       const res = await fetch('/api/passkeys/auth/options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -328,26 +316,23 @@ function renderLogin() {
         return;
       }
 
-      // 🔴 פה היה נופל לך
       if (!options.challenge) {
-        showMessage('error', 'שגיאה: אין challenge מהשרת');
+        showMessage('error', 'שגיאה: לא התקבל challenge מהשרת');
         return;
       }
 
-      // 🔥 המרה נכונה אחת בלבד
+      if (!options.allowCredentials || !options.allowCredentials.length) {
+        showMessage('error', 'אין זיהוי ביומטרי למשתמש זה. יש להפעיל קודם זיהוי ביומטרי לאחר התחברות רגילה.');
+        return;
+      }
+
       options.challenge = base64urlToBuffer(options.challenge);
 
-      if (options.allowCredentials) {
-        options.allowCredentials = options.allowCredentials.map(c => ({
-          ...c,
-          id: base64urlToBuffer(c.id)
-        }));
-      }
-      if (!options.allowCredentials || options.allowCredentials.length === 0) {
-        showMessage('error', 'אין זיהוי ביומטרי למשתמש זה. יש להפעיל קודם.');
-        return;
-      }
-      // בקשת ביומטרי
+      options.allowCredentials = options.allowCredentials.map(c => ({
+        ...c,
+        id: base64urlToBuffer(c.id)
+      }));
+
       let credential;
 
       try {
@@ -355,6 +340,7 @@ function renderLogin() {
           publicKey: options
         });
       } catch (err) {
+        console.error('Biometric get failed:', err);
         showMessage('error', 'האימות הביומטרי בוטל או נכשל');
         return;
       }
@@ -364,7 +350,6 @@ function renderLogin() {
         return;
       }
 
-      // 4. שליחה לשרת
       const verifyRes = await fetch('/api/passkeys/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -372,14 +357,14 @@ function renderLogin() {
           userId: options.userId,
           credential: {
             id: credential.id,
-            rawId: arrayBufferToBase64(credential.rawId),
+            rawId: bufferToBase64url(credential.rawId),
             type: credential.type,
             response: {
-              authenticatorData: arrayBufferToBase64(credential.response.authenticatorData),
-              clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
-              signature: arrayBufferToBase64(credential.response.signature),
+              authenticatorData: bufferToBase64url(credential.response.authenticatorData),
+              clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+              signature: bufferToBase64url(credential.response.signature),
               userHandle: credential.response.userHandle
-                ? arrayBufferToBase64(credential.response.userHandle)
+                ? bufferToBase64url(credential.response.userHandle)
                 : null
             }
           }
@@ -389,16 +374,16 @@ function renderLogin() {
       const data = await verifyRes.json();
 
       if (!verifyRes.ok) {
-        showMessage('error', data.error || 'האימות נכשל');
+        showMessage('error', data.error || 'האימות הביומטרי נכשל');
         return;
       }
 
       saveAuth(data.token, data.user);
-      toast('success', 'התחברת עם ביומטרי 🚀');
+      toast('success', 'התחברת עם זיהוי ביומטרי');
       render();
 
     } catch (err) {
-      console.error(err);
+      console.error('Biometric login error:', err);
       showMessage('error', 'שגיאה בזיהוי ביומטרי');
     }
   };
@@ -615,29 +600,75 @@ async function renderEmployee() {
   };
   document.getElementById('registerPasskeyBtn').onclick = async () => {
     try {
+      if (!window.PublicKeyCredential) {
+        toast('error', 'המכשיר או הדפדפן לא תומכים בזיהוי ביומטרי');
+        return;
+      }
+
       const options = await api('/api/passkeys/register/options', {
         method: 'POST',
         body: JSON.stringify({})
       });
 
-      const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON
-        ? PublicKeyCredential.parseCreationOptionsFromJSON(options)
-        : options;
+      if (!options || !options.challenge || !options.user || !options.user.id) {
+        toast('error', 'השרת לא החזיר נתוני רישום תקינים');
+        return;
+      }
 
-      const attResp = await navigator.credentials.create({ publicKey });
+      options.challenge = base64urlToBuffer(options.challenge);
+      options.user.id = base64urlToBuffer(options.user.id);
+
+      if (options.excludeCredentials && options.excludeCredentials.length) {
+        options.excludeCredentials = options.excludeCredentials.map(c => ({
+          ...c,
+          id: base64urlToBuffer(c.id)
+        }));
+      }
+
+      let attResp;
+
+      try {
+        attResp = await navigator.credentials.create({
+          publicKey: options
+        });
+      } catch (err) {
+        console.error('Biometric register failed:', err);
+        toast('error', 'רישום הזיהוי הביומטרי בוטל או נכשל');
+        return;
+      }
+
+      if (!attResp || !attResp.response) {
+        toast('error', 'לא התקבל רישום ביומטרי תקין');
+        return;
+      }
+
+      const payload = {
+        id: attResp.id,
+        rawId: bufferToBase64url(attResp.rawId),
+        type: attResp.type,
+        response: {
+          clientDataJSON: bufferToBase64url(attResp.response.clientDataJSON),
+          attestationObject: bufferToBase64url(attResp.response.attestationObject),
+          transports: attResp.response.getTransports ? attResp.response.getTransports() : []
+        }
+      };
 
       const result = await api('/api/passkeys/register/verify', {
         method: 'POST',
-        body: JSON.stringify(attResp.toJSON ? attResp.toJSON() : attResp)
+        body: JSON.stringify(payload)
       });
 
       if (result.success) {
         toast('success', 'הזיהוי הביומטרי הופעל בהצלחה');
+      } else {
+        toast('error', 'רישום ביומטרי נכשל');
       }
     } catch (err) {
+      console.error('Register passkey error:', err);
       toast('error', err.message || 'הפעלת ביומטרי נכשלה');
     }
   };
+
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
     render();
