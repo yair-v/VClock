@@ -164,16 +164,7 @@ app.post('/api/passkeys/register/options', authRequired, async (req, res) => {
     req.app.locals.passkeyRegistrationChallenges = req.app.locals.passkeyRegistrationChallenges || new Map();
     req.app.locals.passkeyRegistrationChallenges.set(String(req.user.id), options.challenge);
 
-    res.json({
-      ...options,
-      user: {
-        ...(options.user || {}),
-        id: webauthnUserId,
-        name: req.user.employee_code,
-        displayName: req.user.full_name
-      },
-      userId: webauthnUserId
-    });
+    res.json(options);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -210,7 +201,7 @@ app.post('/api/passkeys/register/verify', authRequired, async (req, res) => {
       [
         req.user.id,
         Buffer.from(`vclock:${req.user.id}`, 'utf8').toString('base64url'),
-        Buffer.from(registrationInfo.credential.id).toString('base64url'),
+        registrationInfo.credential.id,
         registrationInfo.credential.publicKey.toString('base64url'),
         registrationInfo.credential.counter,
         registrationInfo.credentialDeviceType || '',
@@ -251,14 +242,13 @@ app.post('/api/passkeys/auth/options', async (req, res) => {
     const options = await generateAuthenticationOptions({
       rpID: RP_ID,
       allowCredentials: passkeys.rows.map(p => ({
-        id: Buffer.from(p.credential_id, 'base64url'),
+        id: p.credential_id,
         type: 'public-key',
         transports: JSON.parse(p.transports || '[]'),
       })),
       userVerification: 'preferred',
       timeout: 60000,
     });
-
 
     req.app.locals.passkeyAuthChallenges = req.app.locals.passkeyAuthChallenges || new Map();
     req.app.locals.passkeyAuthChallenges.set(String(user.id), options.challenge);
@@ -371,29 +361,11 @@ app.get('/api/my-status', authRequired, async (req, res) => {
       [req.user.id]
     );
 
-    const todayRowsRes = await query(
-      `SELECT *
-       FROM attendance_records
-       WHERE user_id = $1
-         AND DATE(record_time) = CURRENT_DATE
-       ORDER BY record_time ASC`,
-      [req.user.id]
-    );
-
     const settings = await getSettingsRow();
-    const todayRows = todayRowsRes.rows || [];
-
-    let hasOpenWorkSessionToday = false;
-    if (todayRows.length) {
-      const lastTodayRecord = todayRows[todayRows.length - 1];
-      hasOpenWorkSessionToday = lastTodayRecord.record_type === 'in';
-    }
 
     res.json({
       user: userRes.rows[0],
       lastRecord: lastRes.rows[0] || null,
-      todayRecords: todayRows,
-      hasOpenWorkSessionToday,
       workDayTypes: parseWorkDayTypes(settings.work_day_types),
       settings: {
         prevent_double_checkin: settings.prevent_double_checkin,

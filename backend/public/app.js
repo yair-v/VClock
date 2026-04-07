@@ -9,51 +9,50 @@ const state = {
   modal: null
 };
 
-function bufferToBase64url(buffer) {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
+function base64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - base64.length % 4) % 4);
+  const base64Safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
 
-function base64urlToBuffer(base64url) {
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-  const binary = atob(base64 + padding);
-  const bytes = new Uint8Array(binary.length);
+  const rawData = atob(base64Safe);
+  const output = new Uint8Array(rawData.length);
 
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+  for (let i = 0; i < rawData.length; ++i) {
+    output[i] = rawData.charCodeAt(i);
   }
-
-  return bytes;
+  return output;
 }
 
-function isPasskeySupported() {
-  return !!window.PublicKeyCredential && (window.isSecureContext || location.hostname === 'localhost');
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
 }
-
 async function renderDashboardCharts() {
-  try {
-    const data = await api('/api/admin/dashboard-stats');
+  const data = await api('/api/admin/dashboard-stats');
 
-    renderDailyChart(data.daily || []);
-    renderInOutChart(data.inOut || []);
-    renderAbsenceChart(data.absences || []);
-    renderHeatmap(data.heatmap || []);
-    renderDailyTable(data.daily || [], data.inOut || []);
-  } catch (err) {
-    console.error('dashboard-stats error:', err);
-    const wrap = document.getElementById('dailyTableWrap');
-    if (wrap) {
-      wrap.innerHTML = `<div class="error">${err.message}</div>`;
-    }
-  }
+  renderDailyChart(data.daily);
+  renderInOutChart(data.inOut);
+  renderAbsenceChart(data.absences);
+  renderHeatmap(data.heatmap);
 }
+function renderDailyChart(data) {
+  const ctx = document.getElementById('chartDaily');
 
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.map(d => d.day),
+      datasets: [{
+        label: 'עובדים ביום',
+        data: data.map(d => d.count),
+        tension: 0.3
+      }]
+    }
+  });
+}
 function renderInOutChart(data) {
   const ctx = document.getElementById('chartInOut');
-  if (!ctx || typeof Chart === 'undefined') return;
 
   new Chart(ctx, {
     type: 'bar',
@@ -72,10 +71,8 @@ function renderInOutChart(data) {
     }
   });
 }
-
 function renderAbsenceChart(data) {
   const ctx = document.getElementById('chartAbsence');
-  if (!ctx || typeof Chart === 'undefined') return;
 
   new Chart(ctx, {
     type: 'bar',
@@ -88,10 +85,8 @@ function renderAbsenceChart(data) {
     }
   });
 }
-
 function renderHeatmap(data) {
   const container = document.getElementById('heatmap');
-  if (!container) return;
 
   container.innerHTML = '';
 
@@ -101,52 +96,13 @@ function renderHeatmap(data) {
     div.style.height = '12px';
     div.style.margin = '2px';
 
-    const intensity = Math.min(Number(d.value || 0) / 5, 1);
+    const intensity = Math.min(d.value / 5, 1);
+
     div.style.background = `rgba(34,197,94,${intensity})`;
 
     container.appendChild(div);
   });
 }
-
-function renderDailyTable(daily, inOut) {
-  const wrap = document.getElementById('dailyTableWrap');
-  if (!wrap) return;
-
-  const inOutMap = {};
-  (inOut || []).forEach(row => {
-    inOutMap[row.day] = row;
-  });
-
-  wrap.innerHTML = `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>תאריך</th>
-            <th>עובדים שהגיעו</th>
-            <th>כניסות</th>
-            <th>יציאות</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${(daily || []).map(row => {
-    const io = inOutMap[row.day] || {};
-    return `
-                <tr>
-                  <td>${row.day}</td>
-                  <td>${row.count}</td>
-                  <td>${io.ins || 0}</td>
-                  <td>${io.outs || 0}</td>
-                </tr>
-              `;
-  }).join('') || '<tr><td colspan="4">אין נתונים</td></tr>'
-    }
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 function saveAuth(token, user) {
   state.token = token;
   state.user = user;
@@ -163,11 +119,9 @@ function clearAuth() {
 
 async function api(url, options = {}) {
   const headers = options.headers || {};
-
   if (!(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-
   if (state.token) {
     headers['Authorization'] = 'Bearer ' + state.token;
   }
@@ -272,19 +226,15 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
   };
 }
 
-/*function renderLogin() {
-  const passkeyLabel = isPasskeySupported()
-    ? 'כניסה מהירה במכשיר הזה'
-    : 'כניסה מהירה לא זמינה במכשיר זה';
- 
+function renderLogin() {
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="card hero-card center">
         <div class="badge">VClock 2026</div>
         <h1 class="title">מערכת שעון נוכחות</h1>
-        <p class="subtitle">כניסה עם סיסמה או עם Passkey /כניסה מהירה של המכשיר</p>
+        <p class="subtitle">כניסה עם זיהוי ביומטרי או סיסמה</p>
         <div id="msgBox" class="hidden"></div>
- 
+
         <div class="grid" style="text-align:right">
           <div>
             <label class="label">שם עובד או מספר עובד</label>
@@ -295,13 +245,13 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
             <input class="input" id="loginPassword" type="password" />
           </div>
         </div>
- 
+
         <div class="hero-login-actions">
-          <button class="btn btn-primary btn-block" id="bioLoginBtn" ${isPasskeySupported() ? '' : 'disabled'}>${passkeyLabel}</button>
+          <button class="btn btn-primary btn-block" id="bioLoginBtn">כניסה עם זיהוי ביומטרי</button>
           <div class="login-divider">או</div>
           <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
         </div>
- 
+
         <hr class="sep" />
         <div class="small">
           משתמשים לדוגמה:<br />
@@ -311,19 +261,18 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
       </div>
     </div>
   `;
- 
+
   document.getElementById('passwordLoginBtn').onclick = async () => {
     clearMessage();
- 
     try {
-      const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
+      const employeeCode = document.getElementById('loginEmployeeCode').value;
       const password = document.getElementById('loginPassword').value;
- 
+
       const data = await api('/api/login', {
         method: 'POST',
         body: JSON.stringify({ employeeCode, password })
       });
- 
+
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
       render();
@@ -331,70 +280,59 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
       showMessage('error', err.message);
     }
   };
- 
+
   document.getElementById('bioLoginBtn').onclick = async () => {
     clearMessage();
- 
+
     try {
-      if (!isPasskeySupported()) {
-        showMessage('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
-        return;
-      }
- 
-      const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
- 
+      const employeeCode = document.getElementById('loginEmployeeCode').value;
+
       if (!employeeCode) {
-        showMessage('error', 'יש להזין שם עובד או מספר עובד לפני כניסה מהירה');
+        showMessage('error', 'יש להזין שם עובד או מספר עובד');
         return;
       }
- 
+
+      // 1. קבלת options מהשרת
       const res = await fetch('/api/passkeys/auth/options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeCode })
       });
- 
+
       const options = await res.json();
- 
+
       if (!res.ok || !options) {
-        showMessage('error', options?.error || 'שגיאה בקבלת נתוני כניסה מהירה');
+        showMessage('error', options?.error || 'שגיאה בקבלת נתוני ביומטרי');
         return;
       }
- 
+
+      // 🔴 פה היה נופל לך
       if (!options.challenge) {
-        showMessage('error', 'שגיאה: לא התקבל challenge מהשרת');
+        showMessage('error', 'שגיאה: אין challenge מהשרת');
         return;
       }
- 
-      if (!options.allowCredentials || !options.allowCredentials.length) {
-        showMessage('error', 'לא הופעלה כניסה מהירה עבור משתמש זה. התחבר בסיסמה והפעל קודם כניסה מהירה');
+
+      // 2. המרה תקינה ל־WebAuthn
+      options.challenge = base64ToUint8Array(options.challenge);
+
+      if (options.allowCredentials) {
+        options.allowCredentials = options.allowCredentials.map(c => ({
+          ...c,
+          id: base64ToUint8Array(c.id)
+        }));
+      }
+
+      // 3. בקשת ביומטרי מהדפדפן
+      const credential = await navigator.credentials.get({
+        publicKey: options
+      });
+
+      if (!credential) {
+        showMessage('error', 'האימות הביומטרי בוטל');
         return;
       }
- 
-      options.challenge = base64urlToBuffer(options.challenge);
- 
-      options.allowCredentials = options.allowCredentials.map(c => ({
-        ...c,
-        id: base64urlToBuffer(c.id)
-      }));
- 
-      let credential;
- 
-      try {
-        credential = await navigator.credentials.get({
-          publicKey: options
-        });
-      } catch (err) {
-        console.error('Passkey login canceled/failed:', err);
-        showMessage('error', 'האימות הביומטרי בוטל או נכשל');
-        return;
-      }
- 
-      if (!credential || !credential.response) {
-        showMessage('error', 'לא התקבל אישור תקין');
-        return;
-      }
- 
+
+      // 4. שליחה לשרת
       const verifyRes = await fetch('/api/passkeys/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -402,88 +340,34 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
           userId: options.userId,
           credential: {
             id: credential.id,
-            rawId: bufferToBase64url(credential.rawId),
+            rawId: arrayBufferToBase64(credential.rawId),
             type: credential.type,
             response: {
-              authenticatorData: bufferToBase64url(credential.response.authenticatorData),
-              clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
-              signature: bufferToBase64url(credential.response.signature),
+              authenticatorData: arrayBufferToBase64(credential.response.authenticatorData),
+              clientDataJSON: arrayBufferToBase64(credential.response.clientDataJSON),
+              signature: arrayBufferToBase64(credential.response.signature),
               userHandle: credential.response.userHandle
-                ? bufferToBase64url(credential.response.userHandle)
+                ? arrayBufferToBase64(credential.response.userHandle)
                 : null
             }
           }
         })
       });
- 
+
       const data = await verifyRes.json();
- 
+
       if (!verifyRes.ok) {
-        showMessage('error', data.error || 'האימות הביומטרי נכשל');
+        showMessage('error', data.error || 'האימות נכשל');
         return;
       }
- 
-      saveAuth(data.token, data.user);
-      toast('success', 'התחברת עם כניסה מהירה');
-      render();
-    } catch (err) {
-      console.error('Biometric login error:', err);
-      showMessage('error', 'שגיאה בכניסה מהירה');
-    }
-  };
-} */
-
-function renderLogin() {
-  app.innerHTML = `
-    <div class="mobile-shell">
-      <div class="card hero-card center">
-        <div class="badge">VClock 2026</div>
-        <h1 class="title">מערכת שעון נוכחות</h1>
-        <p class="subtitle">כניסה עם סיסמה</p>
-        <div id="msgBox" class="hidden"></div>
-
-        <div class="grid" style="text-align:right">
-          <div>
-            <label class="label">שם עובד או מספר עובד</label>
-            <input class="input" id="loginEmployeeCode" />
-          </div>
-          <div>
-            <label class="label">סיסמה</label>
-            <input class="input" id="loginPassword" type="password" />
-          </div>
-        </div>
-
-        <div class="hero-login-actions">
-          <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
-        </div>
-
-        <hr class="sep" />
-        <div class="small">
-          משתמשים לדוגמה:<br />
-          מנהל: admin / 1234<br />
-          עובד: 1001 / 1234
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.getElementById('passwordLoginBtn').onclick = async () => {
-    clearMessage();
-
-    try {
-      const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
-      const password = document.getElementById('loginPassword').value;
-
-      const data = await api('/api/login', {
-        method: 'POST',
-        body: JSON.stringify({ employeeCode, password })
-      });
 
       saveAuth(data.token, data.user);
-      toast('success', 'התחברת בהצלחה');
+      toast('success', 'התחברת עם ביומטרי 🚀');
       render();
+
     } catch (err) {
-      showMessage('error', err.message);
+      console.error(err);
+      showMessage('error', 'שגיאה בזיהוי ביומטרי');
     }
   };
 }
@@ -544,7 +428,6 @@ function setupMealCheckboxes(canUseMeals) {
     morning.disabled = disabled;
     noon.disabled = disabled;
     evening.disabled = disabled;
-
     if (disabled) {
       morning.checked = false;
       noon.checked = false;
@@ -603,10 +486,6 @@ function setupMealCheckboxes(canUseMeals) {
 }
 
 async function renderEmployee() {
-  const passkeyButtonLabel = isPasskeySupported()
-    ? 'הפעל כניסה מהירה'
-    : 'ביומטרי לא זמין';
-
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="topbar">
@@ -616,14 +495,15 @@ async function renderEmployee() {
 
         <div style="text-align:right">
           <div class="badge">עובד</div>
-          <h1 class="title" style="margin:8px 0 4px">${state.user.full_name}</h1>
+            <h1 class="title" style="margin:8px 0 4px">${state.user.full_name}</h1>
           <div class="small">קוד עובד: ${state.user.employee_code}</div>
         </div>
 
-        <div class="row">
-          <button class="btn btn-light" id="logoutBtn">התנתק</button>
+          <div class="row">
+            <button class="btn btn-light" id="logoutBtn">התנתק</button>
+            <button class="btn btn-ghost" id="registerPasskeyBtn">הפעל זיהוי ביומטרי</button>
+          </div>
         </div>
-      </div>
 
       <div class="card">
         <div id="msgBox" class="hidden"></div>
@@ -661,12 +541,11 @@ async function renderEmployee() {
       </div>
 
       <div class="card">
-        <h2 style="margin-top:0">הדיווחים שלי להיום</h2>
+        <h2 style="margin-top:0"הדיווחים שלי להיום</h2>
         <div id="myRecords">טוען...</div>
       </div>
     </div>
   `;
-
   document.getElementById('exportMyRecordsBtn').onclick = async () => {
     try {
       const url = window.location.origin + '/api/my-records-export';
@@ -678,6 +557,7 @@ async function renderEmployee() {
         }
       });
 
+      // 🔴 בדיקה אם קיבלנו HTML בטעות
       const contentType = res.headers.get('content-type') || '';
 
       if (!res.ok || contentType.includes('text/html')) {
@@ -687,6 +567,7 @@ async function renderEmployee() {
       }
 
       const blob = await res.blob();
+
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
@@ -695,102 +576,78 @@ async function renderEmployee() {
       a.click();
       a.remove();
       URL.revokeObjectURL(downloadUrl);
+
     } catch (err) {
       showMessage('error', err.message);
     }
   };
+  document.getElementById('registerPasskeyBtn').onclick = async () => {
+    try {
+      const options = await api('/api/passkeys/register/options', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
 
-  /* document.getElementById('registerPasskeyBtn').onclick = async () => {
-     try {
-       if (!isPasskeySupported()) {
-         toast('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
-         return;
-       }
- 
-       const options = await api('/api/passkeys/register/options', {
-         method: 'POST',
-         body: JSON.stringify({})
-       });
- 
-       console.log('passkey register options:', options);
- 
-       if (!options || !options.challenge) {
-         toast('error', 'השרת לא החזיר challenge תקין');
-         return;
-       }
- 
-       // תמיכה גם אם השרת מחזיר user.id וגם אם יחזיר userID
-       const userIdFromServer =
-         options?.user?.id ||
-         options?.userId ||
-         options?.userID ||
-         null;
- 
-       if (!userIdFromServer) {
-         toast('error', 'השרת לא החזיר מזהה משתמש תקין לכניסה מהירה');
-         return;
-       }
- 
-       const publicKey = {
-         ...options,
-         challenge: base64urlToBuffer(options.challenge),
-         user: {
-           ...(options.user || {}),
-           id: base64urlToBuffer(userIdFromServer)
-         },
-         excludeCredentials: Array.isArray(options.excludeCredentials)
-           ? options.excludeCredentials
-             .filter(c => c && c.id)
-             .map(c => ({
-               ...c,
-               id: base64urlToBuffer(c.id)
-             }))
-           : []
-       };
- 
-       let attResp;
- 
-       try {
-         attResp = await navigator.credentials.create({
-           publicKey
-         });
-       } catch (err) {
-         console.error('Passkey register canceled/failed:', err);
-         toast('error', 'הפעלת הכניסה המהירה בוטלה או נכשלה');
-         return;
-       }
- 
-       if (!attResp || !attResp.response) {
-         toast('error', 'לא התקבל רישום תקין מהמכשיר');
-         return;
-       }
- 
-       const payload = {
-         id: attResp.id,
-         rawId: bufferToBase64url(attResp.rawId),
-         type: attResp.type,
-         response: {
-           clientDataJSON: bufferToBase64url(attResp.response.clientDataJSON),
-           attestationObject: bufferToBase64url(attResp.response.attestationObject),
-           transports: attResp.response.getTransports ? attResp.response.getTransports() : []
-         }
-       };
- 
-       const result = await api('/api/passkeys/register/verify', {
-         method: 'POST',
-         body: JSON.stringify(payload)
-       });
- 
-       if (result.success) {
-         toast('success', 'הכניסה המהירה הופעלה בהצלחה במכשיר זה');
-       } else {
-         toast('error', 'הפעלת הכניסה המהירה נכשלה');
-       }
-     } catch (err) {
-       console.error('Register passkey error:', err);
-       toast('error', 'הפעלת הכניסה המהירה נכשלה');
-     }
-   };*/
+      const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON
+        ? PublicKeyCredential.parseCreationOptionsFromJSON(options)
+        : options;
+
+      const attResp = await navigator.credentials.create({ publicKey });
+
+      const result = await api('/api/passkeys/register/verify', {
+        method: 'POST',
+        body: JSON.stringify(attResp.toJSON ? attResp.toJSON() : attResp)
+      });
+
+      if (result.success) {
+        toast('success', 'הזיהוי הביומטרי הופעל בהצלחה');
+      }
+    } catch (err) {
+      toast('error', err.message || 'הפעלת ביומטרי נכשלה');
+    }
+  };
+  document.getElementById('logoutBtn').onclick = () => {
+    clearAuth();
+    render();
+  };
+
+  function updateClock() {
+    const el = document.getElementById('currentDateTime');
+    if (el) el.value = new Date().toLocaleString('he-IL');
+  }
+
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  async function loadEmployeeConfig() {
+    const status = await api('/api/my-status');
+    state.employeeStatus = status;
+
+    const select = document.getElementById('workDayType');
+    const options = status.workDayTypes && status.workDayTypes.length
+      ? status.workDayTypes
+      : ['יום רגיל'];
+
+    select.innerHTML = options
+      .map(v => `<option>${v}</option>`)
+      .join('');
+
+    const canUseMeals =
+      status.lastRecord &&
+      status.lastRecord.record_type === 'in' &&
+      !status.user.day_closed;
+
+    setupMealCheckboxes(!!canUseMeals);
+
+    const checkInBtn = document.getElementById('checkInBtn');
+    if (status.user.day_closed) {
+      checkInBtn.disabled = true;
+      checkInBtn.title = 'היום נסגר. יש לפנות למנהל לפתיחה מחדש';
+    } else {
+      checkInBtn.disabled = false;
+      checkInBtn.title = '';
+    }
+  }
 
   document.getElementById('checkInBtn').onclick = async () => {
     await submitAttendance('in');
@@ -830,29 +687,29 @@ async function renderEmployee() {
       const rows = await api('/api/my-records');
 
       document.getElementById('myRecords').innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>סוג</th>
+              <th>סוג יום</th>
+              <th>הערה</th>
+              <th>תאריך ושעה</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
               <tr>
-                <th>סוג</th>
-                <th>סוג יום</th>
-                <th>הערה</th>
-                <th>תאריך ושעה</th>
+                <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                <td>${r.work_day_type}</td>
+                <td>${r.note || ''}</td>
+                <td>${fmtDateTime(r.record_time)}</td>
               </tr>
-            </thead>
-            <tbody>
-              ${rows.map(r => `
-                <tr>
-                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                  <td>${r.work_day_type}</td>
-                  <td>${r.note || ''}</td>
-                  <td>${fmtDateTime(r.record_time)}</td>
-                </tr>
-              `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      `;
+            `).join('') || '<tr><td colspan="4">אין דיווחים להיום</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `;
     } catch (err) {
       document.getElementById('myRecords').innerHTML = `<div class="error">${err.message}</div>`;
     }
@@ -929,14 +786,8 @@ async function renderEmployee() {
 
       let msg = serverMsg || 'אירעה שגיאה';
 
-      if (
-        recordType === 'in' &&
-        (
-          serverMsg.includes('כניסה כפולה') ||
-          serverMsg.includes('כניסה שנייה באותו היום')
-        )
-      ) {
-        msg = 'לא ניתן לבצע כניסה שנייה באותו היום ויש לפנות למנהל המחלקה על מנת לשחרר את הרשומה';
+      if (recordType === 'in' && serverMsg.includes('כניסה כפולה')) {
+        msg = `שלום ${employeeName}, כבר קיימת כניסה פתוחה. אנא בדוק את הדיווחים בתחתית הדף, אם זאת אינה טעות אנא פנה למנהל המחלקה.`;
       } else if (recordType === 'in' && serverMsg.includes('היום נסגר')) {
         msg = `שלום ${employeeName}, יום העבודה נסגר וכרגע אין אפשרות לבצע כניסה נוספת. מנהל יכול לפתוח עבורך מחדש את אפשרות הכניסה.`;
       } else if (recordType === 'out' && serverMsg.includes('יציאה ללא כניסה')) {
@@ -1029,61 +880,54 @@ async function loadDashboard() {
         <h3 style="margin-top:0">בקשות עובדים לפעולה</h3>
         ${d.actionRequests && d.actionRequests.length
         ? `
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>קוד עובד</th>
-                    <th>שם עובד</th>
-                    <th>פעולה</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${d.actionRequests.map(r => `
+              <div class="table-wrap">
+                <table>
+                  <thead>
                     <tr>
-                      <td>${r.employee_code}</td>
-                      <td>${r.full_name}</td>
-                      <td>
-                        <button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>
-                      </td>
+                      <th>קוד עובד</th>
+                      <th>שם עובד</th>
+                      <th>פעולה</th>
                     </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-          `
+                  </thead>
+                  <tbody>
+                    ${d.actionRequests.map(r => `
+                      <tr>
+                        <td>${r.employee_code}</td>
+                        <td>${r.full_name}</td>
+                        <td>
+                          <button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `
         : `<div class="small">אין כרגע בקשות עובדים לפעולה.</div>`
       }
       </div>
     `;
-
     box.innerHTML += `
-      <div class="card">
-        <h3>📈 עובדים ביום</h3>
-        <canvas id="chartDaily"></canvas>
-      </div>
+  <div class="card">
+    <h3>📈 עובדים ביום</h3>
+    <canvas id="chartDaily"></canvas>
+  </div>
 
-      <div class="card">
-        <h3>📊 כניסות / יציאות</h3>
-        <canvas id="chartInOut"></canvas>
-      </div>
+  <div class="card">
+    <h3>📊 כניסות / יציאות</h3>
+    <canvas id="chartInOut"></canvas>
+  </div>
 
-      <div class="card">
-        <h3>🔥 הכי הרבה חיסורים</h3>
-        <canvas id="chartAbsence"></canvas>
-      </div>
+  <div class="card">
+    <h3>🔥 הכי הרבה חיסורים</h3>
+    <canvas id="chartAbsence"></canvas>
+  </div>
 
-      <div class="card">
-          <h3>📅 טבלת ימים</h3>
-        <div id="dailyTableWrap">טוען...</div>
-      </div>
-
-      <div class="card">
-        <h3>🟩 Heatmap נוכחות</h3>
-        <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
-      </div>
-    `;
-
+  <div class="card">
+    <h3>🟩 Heatmap נוכחות</h3>
+    <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
+  </div>
+`;
     await renderDashboardCharts();
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
@@ -1177,37 +1021,39 @@ async function loadReports() {
             </thead>
             <tbody>
               ${rows.map(r => `
-                <tr>
-                  <td>
-                    <input
-                      type="checkbox"
-                      class="report-row-checkbox"
-                      value="${r.id}"
-                      onchange="toggleReportSelection(${r.id}, this.checked)"
-                    />
-                  </td>
-                  <td>${r.employee_code}</td>
-                  <td>${r.full_name}</td>
-                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                  <td>${r.work_day_type}</td>
-                  <td>${r.note || ''}</td>
-                  <td>
-                    ${r.location_status === 'no_permission'
+                  <tr>
+                    <td>
+                      <input
+                        type="checkbox"
+                        class="report-row-checkbox"
+                        value="${r.id}"
+                        onchange="toggleReportSelection(${r.id}, this.checked)"
+                      />
+                    </td>
+                    <td>${r.employee_code}</td>
+                    <td>${r.full_name}</td>
+                    <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                    <td>${r.work_day_type}</td>
+                    <td>${r.note || ''}</td>
+                    <td>
+                      ${r.location_status === 'no_permission'
           ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
           : (r.map_link
             ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>`
             : '')
         }
-                  </td>
-                  <td>${fmtDateTime(r.record_time)}</td>
-                  <td>
-                    <div class="row">
-                      <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
-                      <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
-                    </div>
-                  </td>
-                </tr>
-              `).join('') || '<tr><td colspan="9">אין נתונים</td></tr>'}
+                    </td>
+                    <td>${fmtDateTime(r.record_time)}</td>
+                    <td>
+                      <div class="row">
+                        <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}')">ערוך</button>
+                        <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')
+        || '<tr><td colspan="9">אין נתונים</td></tr>'
+        }
             </tbody>
           </table>
         </div>
@@ -1444,22 +1290,23 @@ async function loadUsers() {
           </thead>
           <tbody>
             ${rows.map(r => `
-              <tr>
-                <td>${r.employee_code}</td>
-                <td>${r.full_name}</td>
-                <td>${r.role}</td>
-                <td>${r.is_active ? 'כן' : 'לא'}</td>
-                <td>${r.day_closed ? 'כן' : 'לא'}</td>
-                <td>${fmtDateTime(r.created_at)}</td>
-                <td>
-                  <div class="row">
-                    <button class="btn btn-light" onclick="editUser(${r.id})">ערוך</button>
-                    ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>` : ''}
-                    <button class="btn btn-danger" onclick="deleteUser(${r.id})">מחק</button>
-                  </div>
-                </td>
-              </tr>
-            `).join('') || '<tr><td colspan="7">אין משתמשים</td></tr>'}
+                <tr>
+                  <td>${r.employee_code}</td>
+                  <td>${r.full_name}</td>
+                  <td>${r.role}</td>
+                  <td>${r.is_active ? 'כן' : 'לא'}</td>
+                  <td>${r.day_closed ? 'כן' : 'לא'}</td>
+                  <td>${fmtDateTime(r.created_at)}</td>
+                  <td>
+                    <div class="row">
+                      <button class="btn btn-light" onclick="editUser(${r.id})">ערוך</button>
+                     ${r.day_closed ? `<button class="btn btn-primary" onclick="reopenDay(${r.id})">פתח אפשרות כניסה</button>` : ''}
+                      <button class="btn btn-danger" onclick="deleteUser(${r.id})">מחק</button>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')
+      || '<tr><td colspan="7">אין משתמשים</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1527,7 +1374,6 @@ async function loadSettings() {
     box.innerHTML = `<div class="error">${err.message}</div>`;
   }
 }
-
 async function editReport(id, currentType, currentNote) {
   const work_day_type = prompt('סוג יום עבודה:', currentType || '');
   if (work_day_type === null) return;
@@ -1565,7 +1411,6 @@ async function deleteReport(id) {
     alert(err.message);
   }
 }
-
 function toggleReportSelection(id, checked) {
   const numId = parseInt(id, 10);
 
