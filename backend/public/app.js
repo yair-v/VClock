@@ -244,14 +244,14 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
 function renderLogin() {
   const passkeyLabel = isPasskeySupported()
     ? 'כניסה מהירה במכשיר הזה'
-    : 'זיהוי ביומטרי לא זמין במכשיר זה';
+    : 'כניסה מהירה לא זמינה במכשיר זה';
 
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="card hero-card center">
         <div class="badge">VClock 2026</div>
         <h1 class="title">מערכת שעון נוכחות</h1>
-        <p class="subtitle">כניסה עם סיסמה או עם Passkey / זיהוי ביומטרי של המכשיר</p>
+        <p class="subtitle">כניסה עם סיסמה או עם Passkey /כניסה מהירה של המכשיר</p>
         <div id="msgBox" class="hidden"></div>
 
         <div class="grid" style="text-align:right">
@@ -336,7 +336,7 @@ function renderLogin() {
       }
 
       if (!options.allowCredentials || !options.allowCredentials.length) {
-        showMessage('error', 'לא הופעלה כניסה מהירה עבור משתמש זה. התחבר בסיסמה והפעל קודם זיהוי ביומטרי.');
+        showMessage('error', 'לא הופעלה כניסה מהירה עבור משתמש זה. התחבר בסיסמה והפעל קודם כניסה מהירה');
         return;
       }
 
@@ -360,7 +360,7 @@ function renderLogin() {
       }
 
       if (!credential || !credential.response) {
-        showMessage('error', 'לא התקבל זיהוי ביומטרי תקין');
+        showMessage('error', 'לא התקבל אישור תקין');
         return;
       }
 
@@ -393,7 +393,7 @@ function renderLogin() {
       }
 
       saveAuth(data.token, data.user);
-      toast('success', 'התחברת עם זיהוי ביומטרי');
+      toast('success', 'התחברת עם כניסה מהירה');
       render();
     } catch (err) {
       console.error('Biometric login error:', err);
@@ -627,35 +627,56 @@ async function renderEmployee() {
         body: JSON.stringify({})
       });
 
-      if (!options || !options.challenge || !options.user || !options.user.id) {
-        toast('error', 'השרת לא החזיר נתוני רישום תקינים');
+      console.log('passkey register options:', options);
+
+      if (!options || !options.challenge) {
+        toast('error', 'השרת לא החזיר challenge תקין');
         return;
       }
 
-      options.challenge = base64urlToBuffer(options.challenge);
-      options.user.id = base64urlToBuffer(options.user.id);
+      // תמיכה גם אם השרת מחזיר user.id וגם אם יחזיר userID
+      const userIdFromServer =
+        options?.user?.id ||
+        options?.userId ||
+        options?.userID ||
+        null;
 
-      if (options.excludeCredentials && options.excludeCredentials.length) {
-        options.excludeCredentials = options.excludeCredentials.map(c => ({
-          ...c,
-          id: base64urlToBuffer(c.id)
-        }));
+      if (!userIdFromServer) {
+        toast('error', 'השרת לא החזיר מזהה משתמש תקין לכניסה מהירה');
+        return;
       }
+
+      const publicKey = {
+        ...options,
+        challenge: base64urlToBuffer(options.challenge),
+        user: {
+          ...(options.user || {}),
+          id: base64urlToBuffer(userIdFromServer)
+        },
+        excludeCredentials: Array.isArray(options.excludeCredentials)
+          ? options.excludeCredentials
+            .filter(c => c && c.id)
+            .map(c => ({
+              ...c,
+              id: base64urlToBuffer(c.id)
+            }))
+          : []
+      };
 
       let attResp;
 
       try {
         attResp = await navigator.credentials.create({
-          publicKey: options
+          publicKey
         });
       } catch (err) {
         console.error('Passkey register canceled/failed:', err);
-        toast('error', 'רישום הזיהוי הביומטרי בוטל או נכשל');
+        toast('error', 'הפעלת הכניסה המהירה בוטלה או נכשלה');
         return;
       }
 
       if (!attResp || !attResp.response) {
-        toast('error', 'לא התקבל רישום ביומטרי תקין');
+        toast('error', 'לא התקבל רישום תקין מהמכשיר');
         return;
       }
 
@@ -678,55 +699,13 @@ async function renderEmployee() {
       if (result.success) {
         toast('success', 'הכניסה המהירה הופעלה בהצלחה במכשיר זה');
       } else {
-        toast('error', 'רישום ביומטרי נכשל');
+        toast('error', 'הפעלת הכניסה המהירה נכשלה');
       }
     } catch (err) {
       console.error('Register passkey error:', err);
-      toast('error', err.message || 'הפעלת ביומטרי נכשלה');
+      toast('error', 'הפעלת הכניסה המהירה נכשלה');
     }
   };
-
-  document.getElementById('logoutBtn').onclick = () => {
-    clearAuth();
-    render();
-  };
-
-  function updateClock() {
-    const el = document.getElementById('currentDateTime');
-    if (el) el.value = new Date().toLocaleString('he-IL');
-  }
-
-  updateClock();
-  setInterval(updateClock, 1000);
-
-  async function loadEmployeeConfig() {
-    const status = await api('/api/my-status');
-    state.employeeStatus = status;
-
-    const select = document.getElementById('workDayType');
-    const options = status.workDayTypes && status.workDayTypes.length
-      ? status.workDayTypes
-      : ['יום רגיל'];
-
-    select.innerHTML = options
-      .map(v => `<option>${v}</option>`)
-      .join('');
-
-    const canUseMeals =
-      !!status.hasOpenWorkSessionToday &&
-      !status.user.day_closed;
-
-    setupMealCheckboxes(!!canUseMeals);
-
-    const checkInBtn = document.getElementById('checkInBtn');
-    if (status.user.day_closed) {
-      checkInBtn.disabled = true;
-      checkInBtn.title = 'היום נסגר. יש לפנות למנהל לפתיחה מחדש';
-    } else {
-      checkInBtn.disabled = false;
-      checkInBtn.title = '';
-    }
-  }
 
   document.getElementById('checkInBtn').onclick = async () => {
     await submitAttendance('in');

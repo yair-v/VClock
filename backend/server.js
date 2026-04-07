@@ -164,7 +164,16 @@ app.post('/api/passkeys/register/options', authRequired, async (req, res) => {
     req.app.locals.passkeyRegistrationChallenges = req.app.locals.passkeyRegistrationChallenges || new Map();
     req.app.locals.passkeyRegistrationChallenges.set(String(req.user.id), options.challenge);
 
-    res.json(options);
+    res.json({
+      ...options,
+      user: {
+        ...(options.user || {}),
+        id: webauthnUserId,
+        name: req.user.employee_code,
+        displayName: req.user.full_name
+      },
+      userId: webauthnUserId
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
