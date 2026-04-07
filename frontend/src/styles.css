@@ -1,174 +1,375 @@
-/* ===== GENERAL ===== */
-body {
-  color: #1f2937;
-  /* כהה ונעים */
+/* =========================================================
+   VClock - Clean Dark UI
+   ========================================================= */
+
+/* ===== ROOT ===== */
+:root {
+  --bg-main: #0f172a;
+  --bg-secondary: #111827;
+  --bg-panel: #1e293b;
+  --bg-panel-soft: #243247;
+  --bg-input: #334155;
+  --bg-hover: #3b4b63;
+
+  --text-main: #f8fafc;
+  --text-soft: #cbd5e1;
+  --text-muted: #94a3b8;
+
+  --border: #475569;
+  --border-soft: #64748b;
+
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --danger: #dc2626;
+
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+  --radius: 14px;
+  --radius-sm: 10px;
 }
 
-/* ===== FORM CONTAINER ===== */
-.form-container {
-  background: #f3f4f6;
-  color: #111827;
-}
-
-/* ===== LABELS ===== */
-label {
-  color: #374151 !important;
-  font-weight: 600;
-}
-
-/* ===== INPUTS ===== */
-input,
-select,
-textarea {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border: 1px solid #d1d5db;
-}
-
-/* ===== PLACEHOLDER ===== */
-input::placeholder,
-textarea::placeholder {
-  color: #9ca3af !important;
-  opacity: 1;
-}
-
-/* ===== SELECT TEXT ===== */
-select {
-  color: #111827 !important;
-}
-
-/* ===== CHECKBOX TEXT ===== */
-.checkbox-label {
-  color: #374151;
-}
-
-/* ===== BUTTON ===== */
-button {
-  color: #ffffff;
-}
-
-/* ===== TABLE ===== */
-table {
-  color: #111827;
-}
-
-td,
-th {
-  color: #111827;
-}
-
-/* ===== FIX LIGHT TEXT BUG ===== */
+/* ===== GLOBAL ===== */
 * {
+  box-sizing: border-box;
   text-shadow: none !important;
 }
 
-/* ===== INPUT FOCUS ===== */
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.18), transparent 22%),
+    radial-gradient(circle at top left, rgba(14, 165, 233, 0.1), transparent 20%),
+    linear-gradient(135deg, var(--bg-main), var(--bg-secondary));
+  color: var(--text-main);
 }
 
-/* ===== FIX FORM TEXT VISIBILITY ===== */
-
-input,
-select,
-textarea {
-  color: #111827 !important;
-  background: #ffae01 !important;
+body {
+  color: var(--text-main);
 }
 
-input::placeholder,
-textarea::placeholder {
-  color: #6b7280 !important;
-  opacity: 1 !important;
+/* ===== TYPOGRAPHY ===== */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--text-main) !important;
+  margin-top: 0;
+}
+
+p,
+span,
+div,
+small,
+strong {
+  color: inherit;
 }
 
 label,
 .form-group label,
 .checkbox-group label,
 .user-form label,
-.settings-form label {
-  color: #1f2937 !important;
+.settings-form label,
+.days-group label,
+.weekdays label {
+  color: var(--text-soft) !important;
   font-weight: 600;
 }
 
+/* ===== LAYOUT BLOCKS ===== */
+.form-container,
+.user-form,
+.settings-form,
+.modal-content,
+.card,
+.panel,
+.section,
+.login-box,
+.main-box,
+.report-box,
+.admin-box {
+  background: rgba(30, 41, 59, 0.96) !important;
+  color: var(--text-main) !important;
+  border: 1px solid rgba(100, 116, 139, 0.45);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+}
+
+/* ===== INPUTS ===== */
+input,
+select,
+textarea {
+  width: 100%;
+  background: var(--bg-input) !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  transition: 0.2s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+  opacity: 1 !important;
+}
+
+select {
+  color: var(--text-main) !important;
+  appearance: none;
+}
+
 select option {
-  color: #111827 !important;
-  background: #00ff40 !important;
+  color: var(--text-main) !important;
+  background: var(--bg-panel) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.24);
+  background: #3a4b63 !important;
+}
+
+/* ===== CHECKBOX / RADIO ===== */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  accent-color: var(--primary);
 }
 
 input[type="checkbox"]+span,
 input[type="radio"]+span,
-.checkbox-label,
-.days-group label,
-.weekdays label {
-  color: #1f2937 !important;
+.checkbox-label {
+  color: var(--text-soft) !important;
 }
 
+/* ===== BUTTONS ===== */
 button,
 .btn,
 .save-btn {
+  background: var(--primary) !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+button:hover,
+.btn:hover,
+.save-btn:hover {
+  background: var(--primary-hover) !important;
+  transform: translateY(-1px);
+}
+
+button:disabled,
+.btn:disabled,
+.save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ===== SECONDARY ACTIONS ===== */
+.btn-secondary,
+.cancel-btn,
+.close-btn {
+  background: #475569 !important;
   color: #ffffff !important;
 }
 
+.btn-secondary:hover,
+.cancel-btn:hover,
+.close-btn:hover {
+  background: #5b6b80 !important;
+}
+
+/* ===== SUCCESS / WARNING / DANGER ===== */
+.btn-success {
+  background: var(--success) !important;
+}
+
+.btn-warning {
+  background: var(--warning) !important;
+  color: #111827 !important;
+}
+
+.btn-danger,
+.delete-btn {
+  background: var(--danger) !important;
+}
+
+/* ===== TABLES ===== */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: transparent;
+  color: var(--text-main) !important;
+}
+
+th {
+  background: rgba(51, 65, 85, 0.75);
+  color: var(--text-main) !important;
+  font-weight: 700;
+  text-align: right;
+}
+
+td,
+th {
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  padding: 10px 12px;
+  color: var(--text-soft) !important;
+}
+
+tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+tr:hover td {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+/* ===== LINKS ===== */
+a {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #bfdbfe;
+  text-decoration: underline;
+}
+
+/* ===== BADGES / STATES ===== */
+.badge,
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.status-approved,
+.badge-approved {
+  background: rgba(22, 163, 74, 0.16);
+  color: #86efac !important;
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+.status-pending,
+.badge-pending {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a !important;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.status-rejected,
+.badge-rejected {
+  background: rgba(220, 38, 38, 0.16);
+  color: #fca5a5 !important;
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+/* ===== MODALS ===== */
+.modal,
+.overlay {
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.modal-content {
+  background: rgba(30, 41, 59, 0.98) !important;
+}
+
+/* ===== CARDS / PANELS SPACING ===== */
+.card,
+.panel,
+.section,
 .form-container,
 .user-form,
 .settings-form,
-.modal-content,
-.card,
-.panel,
-.section {
-  color: #111827 !important;
+.login-box,
+.main-box,
+.report-box,
+.admin-box,
+.modal-content {
+  padding: 18px;
 }
 
-/* ===== STRONG CONTRAST FIX ===== */
-
-.form-container,
-.user-form,
-.settings-form,
-.modal-content,
-.card,
-.panel,
-.section {
-  background: #ff0000 !important;
-  color: #111827 !important;
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
-/* שדות */
-input,
-select,
-textarea {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border: 1px solid #9ca3af !important;
+::-webkit-scrollbar-track {
+  background: #0f172a;
 }
 
-/* טקסט בתוך select */
-select option {
-  color: #111827 !important;
-  background: #ffffff !important;
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 999px;
 }
 
-/* כותרות */
-h1,
-h2,
-h3,
-h4,
-h5 {
-  color: #111827 !important;
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
-/* תוויות */
-label {
-  color: #111827 !important;
+/* ===== HELPERS ===== */
+.text-muted {
+  color: var(--text-muted) !important;
 }
 
-/* אזור חיצוני (אם יש overlay כהה) */
-.overlay,
-.background-dark,
-.main-container {
-  background: linear-gradient(135deg, #0f172a, #1e293b);
+.text-soft {
+  color: var(--text-soft) !important;
+}
+
+.text-main {
+  color: var(--text-main) !important;
+}
+
+/* ===== MOBILE ===== */
+@media (max-width: 768px) {
+
+  .card,
+  .panel,
+  .section,
+  .form-container,
+  .user-form,
+  .settings-form,
+  .login-box,
+  .main-box,
+  .report-box,
+  .admin-box,
+  .modal-content {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  input,
+  select,
+  textarea,
+  button,
+  .btn,
+  .save-btn {
+    font-size: 16px;
+  }
+
+  td,
+  th {
+    padding: 8px 10px;
+  }
 }
