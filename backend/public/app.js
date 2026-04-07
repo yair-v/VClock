@@ -254,9 +254,7 @@ function renderLogin() {
 
         <hr class="sep" />
         <div class="small">
-          משתמשים לדוגמה:<br />
-          מנהל: admin / 1234<br />
-          עובד: 1001 / 1234
+        
         </div>
       </div>
     </div>
