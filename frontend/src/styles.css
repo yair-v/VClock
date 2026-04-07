@@ -123,3 +123,52 @@ button,
 .section {
   color: #111827 !important;
 }
+
+/* ===== STRONG CONTRAST FIX ===== */
+
+.form-container,
+.user-form,
+.settings-form,
+.modal-content,
+.card,
+.panel,
+.section {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+/* שדות */
+input,
+select,
+textarea {
+  background: #ffffff !important;
+  color: #111827 !important;
+  border: 1px solid #9ca3af !important;
+}
+
+/* טקסט בתוך select */
+select option {
+  color: #111827 !important;
+  background: #ffffff !important;
+}
+
+/* כותרות */
+h1,
+h2,
+h3,
+h4,
+h5 {
+  color: #111827 !important;
+}
+
+/* תוויות */
+label {
+  color: #111827 !important;
+}
+
+/* אזור חיצוני (אם יש overlay כהה) */
+.overlay,
+.background-dark,
+.main-container {
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+}
