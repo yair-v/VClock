@@ -1,375 +1,168 @@
-/* =========================================================
-   VClock - Clean Dark UI
-   ========================================================= */
-
-/* ===== ROOT ===== */
-:root {
-  --bg-main: #0f172a;
-  --bg-secondary: #111827;
-  --bg-panel: #1e293b;
-  --bg-panel-soft: #243247;
-  --bg-input: #334155;
-  --bg-hover: #3b4b63;
-
-  --text-main: #f8fafc;
-  --text-soft: #cbd5e1;
-  --text-muted: #94a3b8;
-
-  --border: #475569;
-  --border-soft: #64748b;
-
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --success: #16a34a;
-  --warning: #f59e0b;
-  --danger: #dc2626;
-
-  --shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
-  --radius: 14px;
-  --radius-sm: 10px;
-}
-
-/* ===== GLOBAL ===== */
-* {
-  box-sizing: border-box;
-  text-shadow: none !important;
-}
-
-html,
+/* =========================
+   BACKGROUND
+========================= */
 body {
   margin: 0;
-  padding: 0;
-  min-height: 100%;
-  font-family: Arial, Helvetica, sans-serif;
-  background:
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.18), transparent 22%),
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.1), transparent 20%),
-    linear-gradient(135deg, var(--bg-main), var(--bg-secondary));
-  color: var(--text-main);
+  font-family: Arial, sans-serif;
+  background: linear-gradient(180deg, #0f172a 0%, #1d4ed8 100%);
+  color: #fff;
 }
 
-body {
-  color: var(--text-main);
+/* אפקט רקע עדין */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 30px 30px;
+  pointer-events: none;
 }
 
-/* ===== TYPOGRAPHY ===== */
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  color: var(--text-main) !important;
-  margin-top: 0;
+/* =========================
+   MAIN APP CARD
+========================= */
+#app {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
 }
 
-p,
-span,
-div,
-small,
-strong {
-  color: inherit;
-}
-
-label,
-.form-group label,
-.checkbox-group label,
-.user-form label,
-.settings-form label,
-.days-group label,
-.weekdays label {
-  color: var(--text-soft) !important;
-  font-weight: 600;
-}
-
-/* ===== LAYOUT BLOCKS ===== */
-.form-container,
-.user-form,
-.settings-form,
-.modal-content,
-.card,
-.panel,
-.section,
-.login-box,
-.main-box,
-.report-box,
-.admin-box {
-  background: rgba(30, 41, 59, 0.96) !important;
-  color: var(--text-main) !important;
-  border: 1px solid rgba(100, 116, 139, 0.45);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(6px);
-}
-
-/* ===== INPUTS ===== */
-input,
-select,
-textarea {
+.main-card {
   width: 100%;
-  background: var(--bg-input) !important;
-  color: var(--text-main) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  transition: 0.2s ease;
+  max-width: 420px;
+  background: #f8fafc;
+  border-radius: 20px;
+  padding: 20px;
+  color: #1e293b;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
 }
 
-input::placeholder,
-textarea::placeholder {
-  color: var(--text-muted) !important;
-  opacity: 1 !important;
+/* =========================
+   HEADER
+========================= */
+.header {
+  text-align: center;
+  margin-bottom: 15px;
 }
 
+.header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+/* =========================
+   STATS BOX
+========================= */
+.stats-box {
+  background: #e2e8f0;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat strong {
+  display: block;
+  font-size: 16px;
+}
+
+/* =========================
+   SELECT
+========================= */
 select {
-  color: var(--text-main) !important;
-  appearance: none;
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #cbd5f5;
+  margin-bottom: 20px;
 }
 
-select option {
-  color: var(--text-main) !important;
-  background: var(--bg-panel) !important;
+/* =========================
+   ACTION BUTTONS
+========================= */
+.actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--primary) !important;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.24);
-  background: #3a4b63 !important;
+.btn-in {
+  background: #22c55e;
+  color: #fff;
+  flex: 1;
+  margin-left: 5px;
+  padding: 15px;
+  border-radius: 12px;
+  border: none;
+  font-weight: bold;
 }
 
-/* ===== CHECKBOX / RADIO ===== */
-input[type="checkbox"],
-input[type="radio"] {
-  width: auto;
-  accent-color: var(--primary);
+.btn-out {
+  background: #ef4444;
+  color: #fff;
+  flex: 1;
+  margin-right: 5px;
+  padding: 15px;
+  border-radius: 12px;
+  border: none;
+  font-weight: bold;
 }
 
-input[type="checkbox"]+span,
-input[type="radio"]+span,
-.checkbox-label {
-  color: var(--text-soft) !important;
+/* =========================
+   TIMER
+========================= */
+.timer {
+  text-align: center;
+  margin: 20px 0;
+  font-size: 20px;
+  font-weight: bold;
 }
 
-/* ===== BUTTONS ===== */
-button,
-.btn,
-.save-btn {
-  background: var(--primary) !important;
-  color: #ffffff !important;
-  border: none !important;
-  border-radius: var(--radius-sm);
-  padding: 10px 16px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: 0.2s ease;
-}
-
-button:hover,
-.btn:hover,
-.save-btn:hover {
-  background: var(--primary-hover) !important;
-  transform: translateY(-1px);
-}
-
-button:disabled,
-.btn:disabled,
-.save-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* ===== SECONDARY ACTIONS ===== */
-.btn-secondary,
-.cancel-btn,
-.close-btn {
-  background: #475569 !important;
-  color: #ffffff !important;
-}
-
-.btn-secondary:hover,
-.cancel-btn:hover,
-.close-btn:hover {
-  background: #5b6b80 !important;
-}
-
-/* ===== SUCCESS / WARNING / DANGER ===== */
-.btn-success {
-  background: var(--success) !important;
-}
-
-.btn-warning {
-  background: var(--warning) !important;
-  color: #111827 !important;
-}
-
-.btn-danger,
-.delete-btn {
-  background: var(--danger) !important;
-}
-
-/* ===== TABLES ===== */
+/* =========================
+   TABLE / REPORT
+========================= */
 table {
   width: 100%;
   border-collapse: collapse;
-  background: transparent;
-  color: var(--text-main) !important;
-}
-
-th {
-  background: rgba(51, 65, 85, 0.75);
-  color: var(--text-main) !important;
-  font-weight: 700;
-  text-align: right;
+  background: #fff;
+  color: #1e293b;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
 td,
 th {
-  border: 1px solid rgba(100, 116, 139, 0.28);
-  padding: 10px 12px;
-  color: var(--text-soft) !important;
+  padding: 8px;
+  border-bottom: 1px solid #ddd;
 }
 
-tr:nth-child(even) td {
-  background: rgba(255, 255, 255, 0.02);
+/* =========================
+   STATUS COLORS
+========================= */
+.status-approved {
+  color: #16a34a;
+  font-weight: bold;
 }
 
-tr:hover td {
-  background: rgba(59, 130, 246, 0.08);
+.status-pending {
+  color: #f59e0b;
+  font-weight: bold;
 }
 
-/* ===== LINKS ===== */
-a {
-  color: #93c5fd;
-  text-decoration: none;
+.status-rejected {
+  color: #dc2626;
+  font-weight: bold;
 }
 
-a:hover {
-  color: #bfdbfe;
-  text-decoration: underline;
-}
-
-/* ===== BADGES / STATES ===== */
-.badge,
-.status-badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  border: 1px solid transparent;
-}
-
-.status-approved,
-.badge-approved {
-  background: rgba(22, 163, 74, 0.16);
-  color: #86efac !important;
-  border-color: rgba(22, 163, 74, 0.35);
-}
-
-.status-pending,
-.badge-pending {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fde68a !important;
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
-.status-rejected,
-.badge-rejected {
-  background: rgba(220, 38, 38, 0.16);
-  color: #fca5a5 !important;
-  border-color: rgba(220, 38, 38, 0.35);
-}
-
-/* ===== MODALS ===== */
-.modal,
-.overlay {
-  background: rgba(2, 6, 23, 0.72);
-}
-
-.modal-content {
-  background: rgba(30, 41, 59, 0.98) !important;
-}
-
-/* ===== CARDS / PANELS SPACING ===== */
-.card,
-.panel,
-.section,
-.form-container,
-.user-form,
-.settings-form,
-.login-box,
-.main-box,
-.report-box,
-.admin-box,
-.modal-content {
-  padding: 18px;
-}
-
-/* ===== SCROLLBAR ===== */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: #0f172a;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #475569;
-  border-radius: 999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
-}
-
-/* ===== HELPERS ===== */
-.text-muted {
-  color: var(--text-muted) !important;
-}
-
-.text-soft {
-  color: var(--text-soft) !important;
-}
-
-.text-main {
-  color: var(--text-main) !important;
-}
-
-/* ===== MOBILE ===== */
-@media (max-width: 768px) {
-
-  .card,
-  .panel,
-  .section,
-  .form-container,
-  .user-form,
-  .settings-form,
-  .login-box,
-  .main-box,
-  .report-box,
-  .admin-box,
-  .modal-content {
-    padding: 14px;
-    border-radius: 12px;
-  }
-
-  input,
-  select,
-  textarea,
-  button,
-  .btn,
-  .save-btn {
-    font-size: 16px;
-  }
-
-  td,
-  th {
-    padding: 8px 10px;
+/* =========================
+   MOBILE FEEL
+========================= */
+@media (max-width: 600px) {
+  .main-card {
+    border-radius: 20px;
   }
 }
