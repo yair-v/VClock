@@ -247,9 +247,7 @@ function renderLogin() {
         </div>
 
         <div class="hero-login-actions">
-          <button class="btn btn-primary btn-block" id="bioLoginBtn">כניסה עם זיהוי ביומטרי</button>
-          <div class="login-divider">או</div>
-          <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+                   <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
         </div>
 
         <hr class="sep" />
