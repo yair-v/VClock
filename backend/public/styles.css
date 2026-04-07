@@ -265,6 +265,35 @@ textarea {
   border: 1px solid rgba(219, 234, 254, .18);
 }
 
+
+.schedule-box {
+  background: rgba(7, 17, 31, .32);
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: 16px;
+  padding: 12px 14px;
+  line-height: 1.6;
+}
+
+.weekdays-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weekday-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+}
+
+.weekday-chip input {
+  margin: 0;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -488,7 +517,8 @@ hr.sep {
 @media (max-width: 640px) {
 
   .grid-2,
-  .grid-4 {
+  .grid-4,
+  .weekdays-grid {
     grid-template-columns: 1fr
   }
 
@@ -500,4 +530,75 @@ hr.sep {
   .mobile-shell {
     padding: 16px
   }
+}
+
+.schedule-box {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  line-height: 1.6;
+}
+
+.weekdays-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.weekday-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+}
+
+.mini-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,.10);
+}
+
+.status-approved {
+  background: rgba(34,197,94,.16);
+  color: #dcfce7;
+}
+
+.status-rejected {
+  background: rgba(239,68,68,.16);
+  color: #fecaca;
+}
+
+.status-pending {
+  background: rgba(245,158,11,.16);
+  color: #fde68a;
+}
+
+.status-neutral {
+  background: rgba(148,163,184,.16);
+  color: #e2e8f0;
+}
+
+.row-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.report-row-pending td {
+  background: rgba(245,158,11,.06);
+}
+
+.action-stack {
+  display: grid;
+  gap: 8px;
 }
