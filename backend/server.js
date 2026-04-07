@@ -371,11 +371,29 @@ app.get('/api/my-status', authRequired, async (req, res) => {
       [req.user.id]
     );
 
+    const todayRowsRes = await query(
+      `SELECT *
+       FROM attendance_records
+       WHERE user_id = $1
+         AND DATE(record_time) = CURRENT_DATE
+       ORDER BY record_time ASC`,
+      [req.user.id]
+    );
+
     const settings = await getSettingsRow();
+    const todayRows = todayRowsRes.rows || [];
+
+    let hasOpenWorkSessionToday = false;
+    if (todayRows.length) {
+      const lastTodayRecord = todayRows[todayRows.length - 1];
+      hasOpenWorkSessionToday = lastTodayRecord.record_type === 'in';
+    }
 
     res.json({
       user: userRes.rows[0],
       lastRecord: lastRes.rows[0] || null,
+      todayRecords: todayRows,
+      hasOpenWorkSessionToday,
       workDayTypes: parseWorkDayTypes(settings.work_day_types),
       settings: {
         prevent_double_checkin: settings.prevent_double_checkin,

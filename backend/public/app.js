@@ -34,29 +34,21 @@ function isPasskeySupported() {
 }
 
 async function renderDashboardCharts() {
-  const data = await api('/api/admin/dashboard-stats');
+  try {
+    const data = await api('/api/admin/dashboard-stats');
 
-  renderDailyChart(data.daily);
-  renderInOutChart(data.inOut);
-  renderAbsenceChart(data.absences);
-  renderHeatmap(data.heatmap);
-}
-
-function renderDailyChart(data) {
-  const ctx = document.getElementById('chartDaily');
-  if (!ctx || typeof Chart === 'undefined') return;
-
-  new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: data.map(d => d.day),
-      datasets: [{
-        label: 'עובדים ביום',
-        data: data.map(d => d.count),
-        tension: 0.3
-      }]
+    renderDailyChart(data.daily || []);
+    renderInOutChart(data.inOut || []);
+    renderAbsenceChart(data.absences || []);
+    renderHeatmap(data.heatmap || []);
+    renderDailyTable(data.daily || [], data.inOut || []);
+  } catch (err) {
+    console.error('dashboard-stats error:', err);
+    const wrap = document.getElementById('dailyTableWrap');
+    if (wrap) {
+      wrap.innerHTML = `<div class="error">${err.message}</div>`;
     }
-  });
+  }
 }
 
 function renderInOutChart(data) {
@@ -114,6 +106,45 @@ function renderHeatmap(data) {
 
     container.appendChild(div);
   });
+}
+
+function renderDailyTable(daily, inOut) {
+  const wrap = document.getElementById('dailyTableWrap');
+  if (!wrap) return;
+
+  const inOutMap = {};
+  (inOut || []).forEach(row => {
+    inOutMap[row.day] = row;
+  });
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>תאריך</th>
+            <th>עובדים שהגיעו</th>
+            <th>כניסות</th>
+            <th>יציאות</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(daily || []).map(row => {
+    const io = inOutMap[row.day] || {};
+    return `
+                <tr>
+                  <td>${row.day}</td>
+                  <td>${row.count}</td>
+                  <td>${io.ins || 0}</td>
+                  <td>${io.outs || 0}</td>
+                </tr>
+              `;
+  }).join('') || '<tr><td colspan="4">אין נתונים</td></tr>'
+    }
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function saveAuth(token, user) {
@@ -245,7 +276,7 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
   const passkeyLabel = isPasskeySupported()
     ? 'כניסה מהירה במכשיר הזה'
     : 'כניסה מהירה לא זמינה במכשיר זה';
-
+ 
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="card hero-card center">
@@ -253,7 +284,7 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
         <h1 class="title">מערכת שעון נוכחות</h1>
         <p class="subtitle">כניסה עם סיסמה או עם Passkey /כניסה מהירה של המכשיר</p>
         <div id="msgBox" class="hidden"></div>
-
+ 
         <div class="grid" style="text-align:right">
           <div>
             <label class="label">שם עובד או מספר עובד</label>
@@ -264,13 +295,13 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
             <input class="input" id="loginPassword" type="password" />
           </div>
         </div>
-
+ 
         <div class="hero-login-actions">
           <button class="btn btn-primary btn-block" id="bioLoginBtn" ${isPasskeySupported() ? '' : 'disabled'}>${passkeyLabel}</button>
           <div class="login-divider">או</div>
           <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
         </div>
-
+ 
         <hr class="sep" />
         <div class="small">
           משתמשים לדוגמה:<br />
@@ -280,19 +311,19 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
       </div>
     </div>
   `;
-
+ 
   document.getElementById('passwordLoginBtn').onclick = async () => {
     clearMessage();
-
+ 
     try {
       const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
       const password = document.getElementById('loginPassword').value;
-
+ 
       const data = await api('/api/login', {
         method: 'POST',
         body: JSON.stringify({ employeeCode, password })
       });
-
+ 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
       render();
@@ -300,55 +331,55 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
       showMessage('error', err.message);
     }
   };
-
+ 
   document.getElementById('bioLoginBtn').onclick = async () => {
     clearMessage();
-
+ 
     try {
       if (!isPasskeySupported()) {
         showMessage('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
         return;
       }
-
+ 
       const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
-
+ 
       if (!employeeCode) {
         showMessage('error', 'יש להזין שם עובד או מספר עובד לפני כניסה מהירה');
         return;
       }
-
+ 
       const res = await fetch('/api/passkeys/auth/options', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ employeeCode })
       });
-
+ 
       const options = await res.json();
-
+ 
       if (!res.ok || !options) {
         showMessage('error', options?.error || 'שגיאה בקבלת נתוני כניסה מהירה');
         return;
       }
-
+ 
       if (!options.challenge) {
         showMessage('error', 'שגיאה: לא התקבל challenge מהשרת');
         return;
       }
-
+ 
       if (!options.allowCredentials || !options.allowCredentials.length) {
         showMessage('error', 'לא הופעלה כניסה מהירה עבור משתמש זה. התחבר בסיסמה והפעל קודם כניסה מהירה');
         return;
       }
-
+ 
       options.challenge = base64urlToBuffer(options.challenge);
-
+ 
       options.allowCredentials = options.allowCredentials.map(c => ({
         ...c,
         id: base64urlToBuffer(c.id)
       }));
-
+ 
       let credential;
-
+ 
       try {
         credential = await navigator.credentials.get({
           publicKey: options
@@ -358,12 +389,12 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
         showMessage('error', 'האימות הביומטרי בוטל או נכשל');
         return;
       }
-
+ 
       if (!credential || !credential.response) {
         showMessage('error', 'לא התקבל אישור תקין');
         return;
       }
-
+ 
       const verifyRes = await fetch('/api/passkeys/auth/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -384,14 +415,14 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
           }
         })
       });
-
+ 
       const data = await verifyRes.json();
-
+ 
       if (!verifyRes.ok) {
         showMessage('error', data.error || 'האימות הביומטרי נכשל');
         return;
       }
-
+ 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת עם כניסה מהירה');
       render();
@@ -1040,6 +1071,11 @@ async function loadDashboard() {
       <div class="card">
         <h3>🔥 הכי הרבה חיסורים</h3>
         <canvas id="chartAbsence"></canvas>
+      </div>
+
+      <div class="card">
+          <h3>📅 טבלת ימים</h3>
+        <div id="dailyTableWrap">טוען...</div>
       </div>
 
       <div class="card">
