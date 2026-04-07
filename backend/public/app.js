@@ -241,7 +241,7 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
   };
 }
 
-function renderLogin() {
+/*function renderLogin() {
   const passkeyLabel = isPasskeySupported()
     ? 'כניסה מהירה במכשיר הזה'
     : 'כניסה מהירה לא זמינה במכשיר זה';
@@ -400,6 +400,61 @@ function renderLogin() {
       showMessage('error', 'שגיאה בכניסה מהירה');
     }
   };
+} */
+
+function renderLogin() {
+  app.innerHTML = `
+    <div class="mobile-shell">
+      <div class="card hero-card center">
+        <div class="badge">VClock 2026</div>
+        <h1 class="title">מערכת שעון נוכחות</h1>
+        <p class="subtitle">כניסה עם סיסמה</p>
+        <div id="msgBox" class="hidden"></div>
+
+        <div class="grid" style="text-align:right">
+          <div>
+            <label class="label">שם עובד או מספר עובד</label>
+            <input class="input" id="loginEmployeeCode" />
+          </div>
+          <div>
+            <label class="label">סיסמה</label>
+            <input class="input" id="loginPassword" type="password" />
+          </div>
+        </div>
+
+        <div class="hero-login-actions">
+          <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+        </div>
+
+        <hr class="sep" />
+        <div class="small">
+          משתמשים לדוגמה:<br />
+          מנהל: admin / 1234<br />
+          עובד: 1001 / 1234
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('passwordLoginBtn').onclick = async () => {
+    clearMessage();
+
+    try {
+      const employeeCode = document.getElementById('loginEmployeeCode').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      const data = await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify({ employeeCode, password })
+      });
+
+      saveAuth(data.token, data.user);
+      toast('success', 'התחברת בהצלחה');
+      render();
+    } catch (err) {
+      showMessage('error', err.message);
+    }
+  };
 }
 
 function getCurrentMinutes() {
@@ -536,7 +591,6 @@ async function renderEmployee() {
 
         <div class="row">
           <button class="btn btn-light" id="logoutBtn">התנתק</button>
-          <button class="btn btn-ghost" id="registerPasskeyBtn" ${isPasskeySupported() ? '' : 'disabled'}>${passkeyButtonLabel}</button>
         </div>
       </div>
 
@@ -615,97 +669,97 @@ async function renderEmployee() {
     }
   };
 
-  document.getElementById('registerPasskeyBtn').onclick = async () => {
-    try {
-      if (!isPasskeySupported()) {
-        toast('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
-        return;
-      }
-
-      const options = await api('/api/passkeys/register/options', {
-        method: 'POST',
-        body: JSON.stringify({})
-      });
-
-      console.log('passkey register options:', options);
-
-      if (!options || !options.challenge) {
-        toast('error', 'השרת לא החזיר challenge תקין');
-        return;
-      }
-
-      // תמיכה גם אם השרת מחזיר user.id וגם אם יחזיר userID
-      const userIdFromServer =
-        options?.user?.id ||
-        options?.userId ||
-        options?.userID ||
-        null;
-
-      if (!userIdFromServer) {
-        toast('error', 'השרת לא החזיר מזהה משתמש תקין לכניסה מהירה');
-        return;
-      }
-
-      const publicKey = {
-        ...options,
-        challenge: base64urlToBuffer(options.challenge),
-        user: {
-          ...(options.user || {}),
-          id: base64urlToBuffer(userIdFromServer)
-        },
-        excludeCredentials: Array.isArray(options.excludeCredentials)
-          ? options.excludeCredentials
-            .filter(c => c && c.id)
-            .map(c => ({
-              ...c,
-              id: base64urlToBuffer(c.id)
-            }))
-          : []
-      };
-
-      let attResp;
-
-      try {
-        attResp = await navigator.credentials.create({
-          publicKey
-        });
-      } catch (err) {
-        console.error('Passkey register canceled/failed:', err);
-        toast('error', 'הפעלת הכניסה המהירה בוטלה או נכשלה');
-        return;
-      }
-
-      if (!attResp || !attResp.response) {
-        toast('error', 'לא התקבל רישום תקין מהמכשיר');
-        return;
-      }
-
-      const payload = {
-        id: attResp.id,
-        rawId: bufferToBase64url(attResp.rawId),
-        type: attResp.type,
-        response: {
-          clientDataJSON: bufferToBase64url(attResp.response.clientDataJSON),
-          attestationObject: bufferToBase64url(attResp.response.attestationObject),
-          transports: attResp.response.getTransports ? attResp.response.getTransports() : []
-        }
-      };
-
-      const result = await api('/api/passkeys/register/verify', {
-        method: 'POST',
-        body: JSON.stringify(payload)
-      });
-
-      if (result.success) {
-        toast('success', 'הכניסה המהירה הופעלה בהצלחה במכשיר זה');
-      } else {
-        toast('error', 'הפעלת הכניסה המהירה נכשלה');
-      }
-    } catch (err) {
-      console.error('Register passkey error:', err);
-      toast('error', 'הפעלת הכניסה המהירה נכשלה');
-    }
-  };
+  /* document.getElementById('registerPasskeyBtn').onclick = async () => {
+     try {
+       if (!isPasskeySupported()) {
+         toast('error', 'המכשיר או הדפדפן לא תומכים בכניסה מהירה');
+         return;
+       }
+ 
+       const options = await api('/api/passkeys/register/options', {
+         method: 'POST',
+         body: JSON.stringify({})
+       });
+ 
+       console.log('passkey register options:', options);
+ 
+       if (!options || !options.challenge) {
+         toast('error', 'השרת לא החזיר challenge תקין');
+         return;
+       }
+ 
+       // תמיכה גם אם השרת מחזיר user.id וגם אם יחזיר userID
+       const userIdFromServer =
+         options?.user?.id ||
+         options?.userId ||
+         options?.userID ||
+         null;
+ 
+       if (!userIdFromServer) {
+         toast('error', 'השרת לא החזיר מזהה משתמש תקין לכניסה מהירה');
+         return;
+       }
+ 
+       const publicKey = {
+         ...options,
+         challenge: base64urlToBuffer(options.challenge),
+         user: {
+           ...(options.user || {}),
+           id: base64urlToBuffer(userIdFromServer)
+         },
+         excludeCredentials: Array.isArray(options.excludeCredentials)
+           ? options.excludeCredentials
+             .filter(c => c && c.id)
+             .map(c => ({
+               ...c,
+               id: base64urlToBuffer(c.id)
+             }))
+           : []
+       };
+ 
+       let attResp;
+ 
+       try {
+         attResp = await navigator.credentials.create({
+           publicKey
+         });
+       } catch (err) {
+         console.error('Passkey register canceled/failed:', err);
+         toast('error', 'הפעלת הכניסה המהירה בוטלה או נכשלה');
+         return;
+       }
+ 
+       if (!attResp || !attResp.response) {
+         toast('error', 'לא התקבל רישום תקין מהמכשיר');
+         return;
+       }
+ 
+       const payload = {
+         id: attResp.id,
+         rawId: bufferToBase64url(attResp.rawId),
+         type: attResp.type,
+         response: {
+           clientDataJSON: bufferToBase64url(attResp.response.clientDataJSON),
+           attestationObject: bufferToBase64url(attResp.response.attestationObject),
+           transports: attResp.response.getTransports ? attResp.response.getTransports() : []
+         }
+       };
+ 
+       const result = await api('/api/passkeys/register/verify', {
+         method: 'POST',
+         body: JSON.stringify(payload)
+       });
+ 
+       if (result.success) {
+         toast('success', 'הכניסה המהירה הופעלה בהצלחה במכשיר זה');
+       } else {
+         toast('error', 'הפעלת הכניסה המהירה נכשלה');
+       }
+     } catch (err) {
+       console.error('Register passkey error:', err);
+       toast('error', 'הפעלת הכניסה המהירה נכשלה');
+     }
+   };*/
 
   document.getElementById('checkInBtn').onclick = async () => {
     await submitAttendance('in');
