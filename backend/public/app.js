@@ -350,8 +350,8 @@ function renderLogin() {
 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
-
-      render();
+      
+render();
     } catch (err) {
       showMessage('error', err.message);
     }
@@ -574,8 +574,8 @@ async function renderEmployee() {
   };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-
-    render();
+    
+render();
   };
 
   function updateClock() {
@@ -838,8 +838,8 @@ async function renderAdmin() {
 
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-
-    render();
+    
+render();
   };
 
   document.getElementById('shutdownBtn').onclick = async () => {
@@ -1067,9 +1067,9 @@ async function loadReports() {
                     <td>${r.note || ''}</td>
                     <td>
                       ${r.location_status === 'no_permission'
-          ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
-          : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
-        }
+                        ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+                        : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
+                      }
                     </td>
                     <td>${fmtDateTime(r.record_time)}</td>
                     <td>
@@ -1214,7 +1214,11 @@ async function loadMonthly() {
 
 async function editUser(id) {
   try {
-    const users = await api('/api/admin/users');
+    const [users, groups] = await Promise.all([
+      api('/api/admin/users'),
+      api('/api/admin/work-groups')
+    ]);
+
     const user = users.find(u => u.id === id);
 
     if (!user) {
@@ -1222,35 +1226,75 @@ async function editUser(id) {
       return;
     }
 
-    const full_name = prompt('שם חדש:', user.full_name);
+    const employee_code = prompt('מספר / קוד עובד:', user.employee_code || '');
+    if (employee_code === null) return;
+
+    const full_name = prompt('שם מלא:', user.full_name || '');
     if (full_name === null) return;
 
-    const password = prompt('סיסמה חדשה (אפשר להשאיר ריק):', '');
+    const password = prompt('סיסמה חדשה (אפשר להשאיר ריק כדי לא לשנות):', '');
     if (password === null) return;
 
-    const role = prompt('תפקיד (admin / employee):', user.role);
+    const role = prompt('תפקיד (admin / employee):', user.role || 'employee');
     if (role === null) return;
 
-    const friday_rotation_anchor_date = prompt('תאריך עוגן לשישי לסירוגין (YYYY-MM-DD):', (user.friday_rotation_anchor_date || '').slice(0, 10));
+    const availableGroupsText = groups.length
+      ? groups.map(group => `${group.id} - ${group.name}`).join('\n')
+      : 'אין קבוצות מוגדרות כרגע';
+
+    const work_group_id_input = prompt(
+      `קבוצת עבודה (הכנס מזהה קבוצה או השאר ריק לללא קבוצה):\n\n${availableGroupsText}`,
+      user.work_group_id || ''
+    );
+    if (work_group_id_input === null) return;
+
+    const allowed_work_days_text = prompt(
+      'ימי עבודה אישיים (הפרד בפסיקים, לדוגמה: ראשון,שני,שלישי). השאר ריק אם אין:',
+      (user.allowed_work_days || []).join(',')
+    );
+    if (allowed_work_days_text === null) return;
+
+    const friday_rotation_anchor_date = prompt(
+      'תאריך עוגן לשישי לסירוגין (YYYY-MM-DD):',
+      (user.friday_rotation_anchor_date || '').slice(0, 10)
+    );
     if (friday_rotation_anchor_date === null) return;
 
-    const fridayStartAnswer = prompt('האם מהתאריך הזה שישי רגיל מאושר? כתוב כן או לא', user.friday_rotation_start_allowed ? 'כן' : 'לא');
+    const fridayStartAnswer = prompt(
+      'האם בשישי של תאריך העוגן מותר לעבוד רגיל? כתוב כן או לא',
+      user.friday_rotation_start_allowed ? 'כן' : 'לא'
+    );
     if (fridayStartAnswer === null) return;
-    const friday_rotation_start_allowed = ['כן', 'yes', 'y', '1', 'true'].includes(String(fridayStartAnswer).trim().toLowerCase());
 
-    const is_active = confirm('האם המשתמש יהיה פעיל?');
+    const friday_rotation_start_allowed = ['כן', 'yes', 'y', '1', 'true'].includes(
+      String(fridayStartAnswer).trim().toLowerCase()
+    );
+
+    const is_active = confirm(
+      `האם המשתמש פעיל?\n\nלחץ אישור = פעיל\nלחץ ביטול = לא פעיל\n\nמצב נוכחי: ${user.is_active ? 'פעיל' : 'לא פעיל'}`
+    );
+
+    const day_closed = confirm(
+      `האם היום של העובד סגור לכניסה נוספת?\n\nלחץ אישור = סגור\nלחץ ביטול = פתוח\n\nמצב נוכחי: ${user.day_closed ? 'סגור' : 'פתוח'}`
+    );
+
+    const allowed_work_days = (allowed_work_days_text || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
 
     await api('/api/admin/users/' + id, {
       method: 'PUT',
       body: JSON.stringify({
-        full_name,
-        password,
-        role,
+        employee_code: employee_code.trim(),
+        full_name: full_name.trim(),
+        password: password.trim(),
+        role: role.trim(),
         is_active,
-        day_closed: user.day_closed,
-        work_group_id: user.work_group_id,
-        allowed_work_days: user.allowed_work_days || [],
-        friday_rotation_anchor_date,
+        day_closed,
+        work_group_id: work_group_id_input ? Number(work_group_id_input) : null,
+        allowed_work_days,
+        friday_rotation_anchor_date: friday_rotation_anchor_date || null,
         friday_rotation_start_allowed
       })
     });
