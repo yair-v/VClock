@@ -298,6 +298,11 @@ function renderLogin() {
     }
   };
 
+  if (!window.PublicKeyCredential) {
+    showMessage('error', 'המכשיר לא תומך בזיהוי ביומטרי');
+    return;
+  }
+
   document.getElementById('bioLoginBtn').onclick = async () => {
     clearMessage();
 
@@ -329,17 +334,7 @@ function renderLogin() {
         return;
       }
 
-      // 2. המרה תקינה ל־WebAuthn
-      options.challenge = base64ToUint8Array(options.challenge);
-
-      if (options.allowCredentials) {
-        options.allowCredentials = options.allowCredentials.map(c => ({
-          ...c,
-          id: base64ToUint8Array(c.id)
-        }));
-      }
-
-      // 3. המרה ל-WebAuthn format
+      // 🔥 המרה נכונה אחת בלבד
       options.challenge = base64urlToBuffer(options.challenge);
 
       if (options.allowCredentials) {
@@ -349,7 +344,7 @@ function renderLogin() {
         }));
       }
 
-      // 4. בקשת ביומטרי מהדפדפן
+      // בקשת ביומטרי
       const credential = await navigator.credentials.get({
         publicKey: options
       });
@@ -655,8 +650,7 @@ async function renderEmployee() {
       .join('');
 
     const canUseMeals =
-      status.lastRecord &&
-      status.lastRecord.record_type === 'in' &&
+      !!status.hasOpenWorkSessionToday &&
       !status.user.day_closed;
 
     setupMealCheckboxes(!!canUseMeals);
