@@ -497,7 +497,8 @@ async function renderEmployee() {
 
           <div class="row">
             <button class="btn btn-light" id="logoutBtn">התנתק</button>
-                   </div>
+            <button class="btn btn-ghost" id="registerPasskeyBtn"></button>
+          </div>
         </div>
 
       <div class="card">
