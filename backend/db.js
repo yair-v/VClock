@@ -125,7 +125,7 @@ async function initDb() {
       prevent_double_checkin INTEGER NOT NULL DEFAULT 1,
       prevent_checkout_without_checkin INTEGER NOT NULL DEFAULT 1,
       allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1,
-      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
+      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
     )
   `);
 
@@ -145,6 +145,13 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       holiday_date DATE UNIQUE NOT NULL,
       holiday_name TEXT NOT NULL,
+      holiday_type TEXT NOT NULL DEFAULT 'manual',
+      holiday_scope TEXT NOT NULL DEFAULT 'manual',
+      blocks_regular_work INTEGER NOT NULL DEFAULT 1,
+      requires_admin_approval INTEGER NOT NULL DEFAULT 1,
+      default_work_day_type TEXT NOT NULL DEFAULT 'חג',
+      source TEXT NOT NULL DEFAULT 'manual',
+      source_year INTEGER NULL,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
@@ -167,6 +174,43 @@ async function initDb() {
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS day_closed INTEGER NOT NULL DEFAULT 0
   `);
+
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS holiday_type TEXT NOT NULL DEFAULT 'manual'
+  `);
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS holiday_scope TEXT NOT NULL DEFAULT 'manual'
+  `);
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS blocks_regular_work INTEGER NOT NULL DEFAULT 1
+  `);
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS requires_admin_approval INTEGER NOT NULL DEFAULT 1
+  `);
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS default_work_day_type TEXT NOT NULL DEFAULT 'חג'
+  `);
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'
+  `);
+
+  await query(`
+    ALTER TABLE holidays
+    ADD COLUMN IF NOT EXISTS source_year INTEGER NULL
+  `);
+
 
   await query(`
     ALTER TABLE users
@@ -249,6 +293,16 @@ async function initDb() {
   `);
 
   await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS calendar_holiday_name TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS calendar_holiday_type TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
     ALTER TABLE settings
     ADD COLUMN IF NOT EXISTS work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
   `);
@@ -283,7 +337,7 @@ async function initDb() {
       1,
       1,
       1,
-      '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
+      '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
     )
     ON CONFLICT (id) DO UPDATE SET
       work_day_types = EXCLUDED.work_day_types
