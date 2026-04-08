@@ -202,6 +202,36 @@ function rowFlagBadges(record) {
   return badges.join(' ');
 }
 
+
+function getHolidayName(record) {
+  return record?.calendar_holiday_name || record?.holiday_name || '';
+}
+
+function getHolidayType(record) {
+  return record?.calendar_holiday_type || record?.holiday_type || '';
+}
+
+function renderHolidayCell(record) {
+  const holidayName = escapeHtml(getHolidayName(record));
+  const holidayType = escapeHtml(getHolidayType(record));
+  if (!holidayName && !holidayType) {
+    return '<span class="text-soft">—</span>';
+  }
+
+  const parts = [];
+  if (holidayType) {
+    const typeClass = holidayType.includes('ערב') ? 'holiday-badge holiday-erev'
+      : holidayType.includes('חול') ? 'holiday-badge holiday-chol'
+      : holidayType.includes('מועד') ? 'holiday-badge holiday-moed'
+      : 'holiday-badge holiday-full';
+    parts.push(`<span class="${typeClass}">${holidayType}</span>`);
+  }
+  if (holidayName) {
+    parts.push(`<div class="holiday-name">${holidayName}</div>`);
+  }
+  return parts.join('');
+}
+
 function render() {
   if (!state.user) return renderLogin();
   if (state.user.role === 'admin') return renderAdmin();
@@ -707,6 +737,7 @@ render();
             <tr>
               <th>סוג</th>
               <th>סוג יום</th>
+              <th>חג / מועד</th>
               <th>סטטוס</th>
               <th>הערה</th>
               <th>חריגה / הערת מנהל</th>
@@ -721,12 +752,13 @@ render();
                   <div>${r.work_day_type}</div>
                   <div class="row-badges">${rowFlagBadges(r)}</div>
                 </td>
+                <td>${renderHolidayCell(r)}</td>
                 <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
                 <td>${r.note || ''}</td>
                 <td>${[r.exception_reason, r.manager_note].filter(Boolean).join(' | ') || ''}</td>
                 <td>${fmtDateTime(r.record_time)}</td>
               </tr>
-            `).join('') || '<tr><td colspan="6">אין דיווחים להיום</td></tr>'}
+            `).join('') || '<tr><td colspan="7">אין דיווחים להיום</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1086,6 +1118,7 @@ async function loadReports() {
                 <th>שם</th>
                 <th>סוג</th>
                 <th>סוג יום</th>
+                <th>חג / מועד</th>
                 <th>סטטוס</th>
                 <th>חריגה</th>
                 <th>הערת מנהל</th>
@@ -1113,6 +1146,7 @@ async function loadReports() {
                       <div>${r.work_day_type}</div>
                       <div class="row-badges">${rowFlagBadges(r)}</div>
                     </td>
+                    <td>${renderHolidayCell(r)}</td>
                     <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
                     <td>${r.exception_reason || ''}</td>
                     <td>${r.manager_note || ''}</td>
@@ -1138,7 +1172,7 @@ async function loadReports() {
                       </div>
                     </td>
                   </tr>
-                `).join('') || '<tr><td colspan="12">אין נתונים</td></tr>'}
+                `).join('') || '<tr><td colspan="13">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1250,7 +1284,7 @@ async function loadMonthly() {
                   <td>${r.last_out ? fmtDateTime(r.last_out) : ''}</td>
                   <td>${r.totalHours || ''}</td>
                 </tr>
-              `).join('') || '<tr><td colspan="6">אין נתונים</td></tr>'}
+              `).join('') || '<tr><td colspan="7">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1629,6 +1663,11 @@ async function loadSettings() {
               <tr>
                 <th>תאריך</th>
                 <th>שם חג</th>
+                <th>סוג</th>
+                <th>היקף</th>
+                <th>ברירת מחדל</th>
+                <th>מקור</th>
+                <th>שנה</th>
                 <th>פעולה</th>
               </tr>
             </thead>
@@ -1637,9 +1676,14 @@ async function loadSettings() {
                 <tr>
                   <td>${holiday.holiday_date}</td>
                   <td>${escapeHtml(holiday.holiday_name)}</td>
+                  <td>${holiday.holiday_type ? `<span class="holiday-badge ${String(holiday.holiday_type).includes('ערב') ? 'holiday-erev' : String(holiday.holiday_type).includes('חול') ? 'holiday-chol' : 'holiday-full'}">${escapeHtml(holiday.holiday_type)}</span>` : '—'}</td>
+                  <td>${escapeHtml(holiday.holiday_scope || '—')}</td>
+                  <td>${escapeHtml(holiday.default_work_day_type || '—')}</td>
+                  <td>${escapeHtml(holiday.source || 'ידני')}</td>
+                  <td>${escapeHtml(String(holiday.source_year || ''))}</td>
                   <td><button class="btn btn-danger" type="button" onclick="deleteHoliday(${holiday.id})">מחק</button></td>
                 </tr>
-              `).join('') || '<tr><td colspan="3">אין חגים מוגדרים</td></tr>'}
+              `).join('') || '<tr><td colspan="8">אין חגים מוגדרים</td></tr>'}
             </tbody>
           </table>
         </div>
