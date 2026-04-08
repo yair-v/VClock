@@ -202,34 +202,75 @@ function rowFlagBadges(record) {
   return badges.join(' ');
 }
 
-
-function getHolidayName(record) {
-  return record?.calendar_holiday_name || record?.holiday_name || '';
+function getTodayWeekDayName() {
+  const dayIndex = new Date().getDay();
+  return WEEK_DAYS[dayIndex] || 'ראשון';
 }
 
-function getHolidayType(record) {
-  return record?.calendar_holiday_type || record?.holiday_type || '';
-}
+function chooseAutomaticWorkDayType(status, options) {
+  const normalizedOptions = Array.isArray(options) ? options.filter(Boolean) : [];
+  const todayWeekDay = getTodayWeekDayName();
 
-function renderHolidayCell(record) {
-  const holidayName = escapeHtml(getHolidayName(record));
-  const holidayType = escapeHtml(getHolidayType(record));
-  if (!holidayName && !holidayType) {
-    return '<span class="text-soft">—</span>';
+  const calendarDefault =
+    status?.calendar_holiday?.default_work_day_type ||
+    status?.holiday?.default_work_day_type ||
+    status?.todayHoliday?.default_work_day_type ||
+    '';
+
+  const holidayName =
+    status?.calendar_holiday?.holiday_name ||
+    status?.holiday?.holiday_name ||
+    status?.todayHoliday?.holiday_name ||
+    '';
+
+  if (calendarDefault && normalizedOptions.includes(calendarDefault)) {
+    return {
+      value: calendarDefault,
+      reason: holidayName ? `נבחר אוטומטית לפי חג/מועד: ${holidayName}` : 'נבחר אוטומטית לפי חג/מועד'
+    };
   }
 
-  const parts = [];
-  if (holidayType) {
-    const typeClass = holidayType.includes('ערב') ? 'holiday-badge holiday-erev'
-      : holidayType.includes('חול') ? 'holiday-badge holiday-chol'
-      : holidayType.includes('מועד') ? 'holiday-badge holiday-moed'
-      : 'holiday-badge holiday-full';
-    parts.push(`<span class="${typeClass}">${holidayType}</span>`);
+  if (todayWeekDay === 'שבת' && normalizedOptions.includes('שבת')) {
+    return {
+      value: 'שבת',
+      reason: 'נבחר אוטומטית כי היום שבת'
+    };
   }
-  if (holidayName) {
-    parts.push(`<div class="holiday-name">${holidayName}</div>`);
+
+  if (todayWeekDay === 'שישי') {
+    if (status?.schedule?.friday_allowed_today && normalizedOptions.includes('שישי')) {
+      return {
+        value: 'שישי',
+        reason: 'נבחר אוטומטית לפי שישי מאושר לעבודה רגילה'
+      };
+    }
+
+    if (status?.schedule?.friday_allowed_today === false && normalizedOptions.includes('שישי בתשלום')) {
+      return {
+        value: 'שישי בתשלום',
+        reason: 'נבחר אוטומטית לפי שישי לא מאושר לעבודה רגילה'
+      };
+    }
+
+    if (normalizedOptions.includes('שישי')) {
+      return {
+        value: 'שישי',
+        reason: 'נבחר אוטומטית כי היום שישי'
+      };
+    }
   }
-  return parts.join('');
+
+  if (normalizedOptions.includes('יום רגיל')) {
+    return {
+      value: 'יום רגיל',
+      reason: 'נבחר אוטומטית כברירת מחדל'
+    };
+  }
+
+  return {
+    value: normalizedOptions[0] || '',
+    reason: normalizedOptions[0] ? 'נבחר אוטומטית לפי האפשרות הראשונה הזמינה' : ''
+  };
 }
 
 function render() {
@@ -530,6 +571,7 @@ async function renderEmployee() {
           <div>
             <label class="label">סוג יום עבודה</label>
             <select class="select" id="workDayType"></select>
+            <div class="small auto-day-type-hint" id="autoWorkDayTypeHint"></div>
           </div>
 
           <div>
@@ -654,6 +696,16 @@ render();
       .map(v => `<option>${v}</option>`)
       .join('');
 
+    const autoChoice = chooseAutomaticWorkDayType(status, options);
+    if (autoChoice.value && options.includes(autoChoice.value)) {
+      select.value = autoChoice.value;
+    }
+
+    const autoHint = document.getElementById('autoWorkDayTypeHint');
+    if (autoHint) {
+      autoHint.textContent = autoChoice.reason || '';
+    }
+
     const canUseMeals =
       status.lastRecord &&
       status.lastRecord.record_type === 'in' &&
@@ -691,6 +743,16 @@ render();
       checkInBtn.disabled = false;
       checkInBtn.title = '';
     }
+  }
+
+  const workDayTypeSelect = document.getElementById('workDayType');
+  if (workDayTypeSelect) {
+    workDayTypeSelect.addEventListener('change', () => {
+      const autoHint = document.getElementById('autoWorkDayTypeHint');
+      if (autoHint) {
+        autoHint.textContent = `נבחר ידנית: ${workDayTypeSelect.value}`;
+      }
+    });
   }
 
   document.getElementById('checkInBtn').onclick = async () => {
@@ -737,7 +799,6 @@ render();
             <tr>
               <th>סוג</th>
               <th>סוג יום</th>
-              <th>חג / מועד</th>
               <th>סטטוס</th>
               <th>הערה</th>
               <th>חריגה / הערת מנהל</th>
@@ -752,13 +813,12 @@ render();
                   <div>${r.work_day_type}</div>
                   <div class="row-badges">${rowFlagBadges(r)}</div>
                 </td>
-                <td>${renderHolidayCell(r)}</td>
                 <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
                 <td>${r.note || ''}</td>
                 <td>${[r.exception_reason, r.manager_note].filter(Boolean).join(' | ') || ''}</td>
                 <td>${fmtDateTime(r.record_time)}</td>
               </tr>
-            `).join('') || '<tr><td colspan="7">אין דיווחים להיום</td></tr>'}
+            `).join('') || '<tr><td colspan="6">אין דיווחים להיום</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1118,7 +1178,6 @@ async function loadReports() {
                 <th>שם</th>
                 <th>סוג</th>
                 <th>סוג יום</th>
-                <th>חג / מועד</th>
                 <th>סטטוס</th>
                 <th>חריגה</th>
                 <th>הערת מנהל</th>
@@ -1146,7 +1205,6 @@ async function loadReports() {
                       <div>${r.work_day_type}</div>
                       <div class="row-badges">${rowFlagBadges(r)}</div>
                     </td>
-                    <td>${renderHolidayCell(r)}</td>
                     <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
                     <td>${r.exception_reason || ''}</td>
                     <td>${r.manager_note || ''}</td>
@@ -1172,7 +1230,7 @@ async function loadReports() {
                       </div>
                     </td>
                   </tr>
-                `).join('') || '<tr><td colspan="13">אין נתונים</td></tr>'}
+                `).join('') || '<tr><td colspan="12">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1284,7 +1342,7 @@ async function loadMonthly() {
                   <td>${r.last_out ? fmtDateTime(r.last_out) : ''}</td>
                   <td>${r.totalHours || ''}</td>
                 </tr>
-              `).join('') || '<tr><td colspan="7">אין נתונים</td></tr>'}
+              `).join('') || '<tr><td colspan="6">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1663,11 +1721,6 @@ async function loadSettings() {
               <tr>
                 <th>תאריך</th>
                 <th>שם חג</th>
-                <th>סוג</th>
-                <th>היקף</th>
-                <th>ברירת מחדל</th>
-                <th>מקור</th>
-                <th>שנה</th>
                 <th>פעולה</th>
               </tr>
             </thead>
@@ -1676,14 +1729,9 @@ async function loadSettings() {
                 <tr>
                   <td>${holiday.holiday_date}</td>
                   <td>${escapeHtml(holiday.holiday_name)}</td>
-                  <td>${holiday.holiday_type ? `<span class="holiday-badge ${String(holiday.holiday_type).includes('ערב') ? 'holiday-erev' : String(holiday.holiday_type).includes('חול') ? 'holiday-chol' : 'holiday-full'}">${escapeHtml(holiday.holiday_type)}</span>` : '—'}</td>
-                  <td>${escapeHtml(holiday.holiday_scope || '—')}</td>
-                  <td>${escapeHtml(holiday.default_work_day_type || '—')}</td>
-                  <td>${escapeHtml(holiday.source || 'ידני')}</td>
-                  <td>${escapeHtml(String(holiday.source_year || ''))}</td>
                   <td><button class="btn btn-danger" type="button" onclick="deleteHoliday(${holiday.id})">מחק</button></td>
                 </tr>
-              `).join('') || '<tr><td colspan="8">אין חגים מוגדרים</td></tr>'}
+              `).join('') || '<tr><td colspan="3">אין חגים מוגדרים</td></tr>'}
             </tbody>
           </table>
         </div>
