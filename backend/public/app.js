@@ -63,7 +63,7 @@ function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
 
   new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels: data.map(d => d.day),
       datasets: [{
@@ -398,35 +398,35 @@ function renderLogin() {
 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
-      
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
 
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
+      async function deleteHoliday(id) {
+        if (!confirm('למחוק את החג?')) return;
 
-async function setReportApproval(id, approval_status) {
-  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-  if (manager_note === null) return;
+        try {
+          await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+          loadSettings();
+        } catch (err) {
+          alert(err.message);
+        }
+      }
 
-  try {
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
+      async function setReportApproval(id, approval_status) {
+        const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+        if (manager_note === null) return;
 
-render();
+        try {
+          await api('/api/admin/reports/' + id + '/approval', {
+            method: 'PUT',
+            body: JSON.stringify({ approval_status, manager_note })
+          });
+          toast('success', 'סטטוס הדיווח עודכן');
+          loadReports();
+        } catch (err) {
+          alert(err.message);
+        }
+      }
+
+      render();
     } catch (err) {
       showMessage('error', err.message);
     }
@@ -1147,9 +1147,9 @@ async function loadReports() {
                     <td>${r.note || ''}</td>
                     <td>
                       ${r.location_status === 'no_permission'
-                        ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
-                        : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
-                      }
+          ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+          : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
+        }
                     </td>
                     <td>${fmtDateTime(r.record_time)}</td>
                     <td>
