@@ -80,18 +80,6 @@ function getNowInIsrael() {
   };
 }
 
-function getWorkdayWindow() {
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(3, 0, 0, 0);
-  if (now.getHours() < 3) {
-    start.setDate(start.getDate() - 1);
-  }
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { start, end };
-}
-
 function getDateStringFromValue(value) {
   if (!value) return '';
 
@@ -519,16 +507,13 @@ app.get('/api/my-records', authRequired, async (req, res) => {
   try {
     await ensureAutoCloseSpecialRecords();
 
-    const { start, end } = getWorkdayWindow();
-
     const result = await query(
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-         AND record_time >= $2
-         AND record_time < $3
+         AND DATE(record_time) = CURRENT_DATE
        ORDER BY record_time DESC, id DESC`,
-      [req.user.id, start, end]
+      [req.user.id]
     );
 
     res.json(result.rows);
@@ -750,14 +735,10 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
     const totalRecords = await query(
       `SELECT COUNT(*)::int AS count FROM attendance_records`
     );
-    const { start, end } = getWorkdayWindow();
-
     const todayRecords = await query(
       `SELECT COUNT(*)::int AS count
        FROM attendance_records
-       WHERE record_time >= $1
-         AND record_time < $2`,
-      [start, end]
+       WHERE DATE(record_time) = CURRENT_DATE`
     );
     const pendingApprovals = await query(
       `SELECT COUNT(*)::int AS count
@@ -1597,33 +1578,31 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
     await ensureAutoCloseSpecialRecords();
 
     const daily = await query(`
+      WITH working_days AS (
+        SELECT DISTINCT DATE(record_time) AS day
+        FROM attendance_records
+      )
       SELECT
-        d.day::date AS day,
+        wd.day::text AS day,
         COALESCE(wg.name, 'ללא קבוצה') AS group_name,
         COUNT(DISTINCT u.id)::int AS total_employees,
         COUNT(DISTINCT ar.user_id)::int AS arrived_employees,
         CASE
           WHEN COUNT(DISTINCT u.id) = 0 THEN 0
-          ELSE ROUND(
-            (COUNT(DISTINCT ar.user_id)::numeric / COUNT(DISTINCT u.id)::numeric) * 100,
-            1
-          )
+          ELSE ROUND((COUNT(DISTINCT ar.user_id)::numeric / COUNT(DISTINCT u.id)::numeric) * 100, 1)
         END AS attendance_percent
-      FROM (
-        SELECT DISTINCT DATE(record_time) AS day
-        FROM attendance_records
-      ) d
+      FROM working_days wd
       JOIN users u
-      ON u.role = 'employee'
-      AND u.is_active = 1
+        ON u.role = 'employee'
+       AND u.is_active = 1
       LEFT JOIN work_groups wg
-      ON wg.id = u.work_group_id
+        ON wg.id = u.work_group_id
       LEFT JOIN attendance_records ar
-      ON ar.user_id = u.id
-      AND ar.record_type = 'in'
-      AND DATE(ar.record_time) = d.day
-      GROUP BY d.day, COALESCE(wg.name, 'ללא קבוצה')
-      ORDER BY d.day ASC, group_name ASC
+        ON ar.user_id = u.id
+       AND ar.record_type = 'in'
+       AND DATE(ar.record_time) = wd.day
+      GROUP BY wd.day, COALESCE(wg.name, 'ללא קבוצה')
+      ORDER BY wd.day ASC, group_name ASC
     `);
 
     const inOut = await query(`

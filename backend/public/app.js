@@ -8,36 +8,12 @@ const state = {
   currentTab: 'dashboard',
   employeeStatus: null,
   selectedReportIds: [],
-  modal: null
+  modal: null,
+  dashboardChartView: localStorage.getItem('vclock_dashboard_chart_view') || '',
+  dailyChartInstance: null,
+  inOutChartInstance: null,
+  absenceChartInstance: null
 };
-
-function injectUiOverrides() {
-  if (document.getElementById('vclock-safe-overrides')) return;
-  const style = document.createElement('style');
-  style.id = 'vclock-safe-overrides';
-  style.textContent = `
-    .status-pending,
-    .mini-badge.status-pending,
-    .badge-warning,
-    .btn-warning {
-      background: #e2e8f0 !important;
-      color: #334155 !important;
-      border-color: #cbd5e1 !important;
-    }
-    .card canvas {
-      max-height: 180px !important;
-    }
-    .chart-card {
-      min-height: 260px;
-    }
-    #heatmap {
-      max-width: 220px !important;
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-injectUiOverrides();
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -79,19 +55,6 @@ function getCheckedWeekDays(scope) {
   });
 }
 
-function buildCompactChartOptions() {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    aspectRatio: 2.2,
-    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
-    scales: {
-      x: { ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true } },
-      y: { ticks: { font: { size: 10 } }, beginAtZero: true }
-    }
-  };
-}
-
 async function renderDashboardCharts() {
   const data = await api('/api/admin/dashboard-stats');
 
@@ -100,30 +63,88 @@ async function renderDashboardCharts() {
   renderAbsenceChart(data.absences);
   renderHeatmap(data.heatmap);
 }
-
-//    ------   גרפים בדשבורד   ----------
-
-
 function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
+  const select = document.getElementById('dailyGroupFilter');
+  if (!ctx || !Array.isArray(data)) return;
 
-  new Chart(ctx, {
-    type: 'pie',
+  const groups = [...new Set(data.map(d => d.group_name || 'ללא קבוצה'))];
+  if (select) {
+    const previous = state.dashboardChartView && groups.includes(state.dashboardChartView)
+      ? state.dashboardChartView
+      : (groups[0] || '');
+    select.innerHTML = groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
+    select.value = previous;
+    state.dashboardChartView = previous;
+    localStorage.setItem('vclock_dashboard_chart_view', previous);
+    select.onchange = () => {
+      state.dashboardChartView = select.value;
+      localStorage.setItem('vclock_dashboard_chart_view', state.dashboardChartView);
+      renderDailyChart(data);
+    };
+  }
+
+  const currentGroup = (select && select.value) || state.dashboardChartView || groups[0] || '';
+  const filtered = data.filter(d => (d.group_name || 'ללא קבוצה') === currentGroup);
+
+  if (state.dailyChartInstance) {
+    state.dailyChartInstance.destroy();
+  }
+
+  state.dailyChartInstance = new Chart(ctx, {
+    type: 'bar',
     data: {
-      labels: data.map(d => d.day),
-      datasets: [{
-        label: 'עובדים ביום',
-        data: data.map(d => d.count),
-        tension: 0.3
-      }]
+      labels: filtered.map(d => d.day),
+      datasets: [
+        {
+          label: 'הגיעו',
+          data: filtered.map(d => Number(d.arrived_employees || 0))
+        },
+        {
+          label: 'רשומים בקטגוריה',
+          data: filtered.map(d => Number(d.total_employees || 0))
+        },
+        {
+          label: 'אחוז הגעה',
+          data: filtered.map(d => Number(d.attendance_percent || 0)),
+          type: 'line',
+          yAxisID: 'y1',
+          tension: 0.3
+        }
+      ]
     },
-    options: buildCompactChartOptions()
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            afterBody: (items) => {
+              const row = filtered[items[0].dataIndex];
+              return [`קטגוריה: ${row.group_name}`, `הגיעו ${row.arrived_employees} מתוך ${row.total_employees}`];
+            }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 } },
+        y1: {
+          beginAtZero: true,
+          max: 100,
+          position: 'right',
+          grid: { drawOnChartArea: false }
+        }
+      }
+    }
   });
 }
 function renderInOutChart(data) {
   const ctx = document.getElementById('chartInOut');
+  if (!ctx) return;
+  if (state.inOutChartInstance) state.inOutChartInstance.destroy();
 
-  new Chart(ctx, {
+  state.inOutChartInstance = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: data.map(d => d.day),
@@ -138,13 +159,19 @@ function renderInOutChart(data) {
         }
       ]
     },
-    options: buildCompactChartOptions()
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
   });
 }
 function renderAbsenceChart(data) {
   const ctx = document.getElementById('chartAbsence');
+  if (!ctx) return;
+  if (state.absenceChartInstance) state.absenceChartInstance.destroy();
 
-  new Chart(ctx, {
+  state.absenceChartInstance = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: data.map(d => d.full_name),
@@ -153,7 +180,11 @@ function renderAbsenceChart(data) {
         data: data.map(d => d.absences)
       }]
     },
-    options: buildCompactChartOptions()
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } }
+    }
   });
 }
 function renderHeatmap(data) {
@@ -369,35 +400,35 @@ function renderLogin() {
 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
+      
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
 
-      async function deleteHoliday(id) {
-        if (!confirm('למחוק את החג?')) return;
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
-        try {
-          await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-          loadSettings();
-        } catch (err) {
-          alert(err.message);
-        }
-      }
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
 
-      async function setReportApproval(id, approval_status) {
-        const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-        if (manager_note === null) return;
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
-        try {
-          await api('/api/admin/reports/' + id + '/approval', {
-            method: 'PUT',
-            body: JSON.stringify({ approval_status, manager_note })
-          });
-          toast('success', 'סטטוס הדיווח עודכן');
-          loadReports();
-        } catch (err) {
-          alert(err.message);
-        }
-      }
-
-      render();
+render();
     } catch (err) {
       showMessage('error', err.message);
     }
@@ -620,35 +651,35 @@ async function renderEmployee() {
   };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
+    
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
 
-    async function deleteHoliday(id) {
-      if (!confirm('למחוק את החג?')) return;
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
-      try {
-        await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-        loadSettings();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
 
-    async function setReportApproval(id, approval_status) {
-      const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-      if (manager_note === null) return;
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
-      try {
-        await api('/api/admin/reports/' + id + '/approval', {
-          method: 'PUT',
-          body: JSON.stringify({ approval_status, manager_note })
-        });
-        toast('success', 'סטטוס הדיווח עודכן');
-        loadReports();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    render();
+render();
   };
 
   function updateClock() {
@@ -911,35 +942,35 @@ async function renderAdmin() {
 
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
+    
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
 
-    async function deleteHoliday(id) {
-      if (!confirm('למחוק את החג?')) return;
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
-      try {
-        await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-        loadSettings();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
 
-    async function setReportApproval(id, approval_status) {
-      const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-      if (manager_note === null) return;
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
-      try {
-        await api('/api/admin/reports/' + id + '/approval', {
-          method: 'PUT',
-          body: JSON.stringify({ approval_status, manager_note })
-        });
-        toast('success', 'סטטוס הדיווח עודכן');
-        loadReports();
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    render();
+render();
   };
 
   document.getElementById('shutdownBtn').onclick = async () => {
@@ -1009,22 +1040,34 @@ async function loadDashboard() {
       </div>
     `;
     box.innerHTML += `
-  <div class="card chart-card">
-    <h3>📈 עובדים ביום</h3>
-    <canvas id="chartDaily"></canvas>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">📈 הגעה לפי קטגוריה</h3>
+      <div style="min-width:220px">
+        <label class="label" style="margin-bottom:4px">בחר קטגוריה</label>
+        <select class="select" id="dailyGroupFilter"></select>
+      </div>
+    </div>
+    <div style="height:260px">
+      <canvas id="chartDaily"></canvas>
+    </div>
   </div>
 
-  <div class="card chart-card">
+  <div class="card">
     <h3>📊 כניסות / יציאות</h3>
-    <canvas id="chartInOut"></canvas>
+    <div style="height:220px">
+      <canvas id="chartInOut"></canvas>
+    </div>
   </div>
 
-  <div class="card chart-card">
+  <div class="card">
     <h3>🔥 הכי הרבה חיסורים</h3>
-    <canvas id="chartAbsence"></canvas>
+    <div style="height:220px">
+      <canvas id="chartAbsence"></canvas>
+    </div>
   </div>
 
-  <div class="card chart-card">
+  <div class="card">
     <h3>🟩 Heatmap נוכחות</h3>
     <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
   </div>
@@ -1167,9 +1210,9 @@ async function loadReports() {
                     <td>${r.note || ''}</td>
                     <td>
                       ${r.location_status === 'no_permission'
-          ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
-          : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
-        }
+                        ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+                        : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
+                      }
                     </td>
                     <td>${fmtDateTime(r.record_time)}</td>
                     <td>
