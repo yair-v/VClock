@@ -8,12 +8,42 @@ const state = {
   currentTab: 'dashboard',
   employeeStatus: null,
   selectedReportIds: [],
-  modal: null,
-  dashboardChartView: localStorage.getItem('vclock_dashboard_chart_view') || '',
-  dailyChartInstance: null,
-  inOutChartInstance: null,
-  absenceChartInstance: null
+  modal: null
 };
+
+let dashboardChartRefs = {
+  daily: null,
+  inOut: null,
+  absence: null
+};
+
+function ensureUiOverrides() {
+  if (document.getElementById('vclockDynamicOverrides')) return;
+  const style = document.createElement('style');
+  style.id = 'vclockDynamicOverrides';
+  style.textContent = `
+    .status-pending,
+    .mini-badge.status-pending {
+      background: #e2e8f0 !important;
+      color: #334155 !important;
+      border: 1px solid #cbd5e1 !important;
+    }
+
+    .dashboard-chart-card .chart-box {
+      position: relative;
+      height: 220px;
+      max-height: 220px;
+      width: 100%;
+    }
+
+    .dashboard-chart-card canvas {
+      width: 100% !important;
+      height: 100% !important;
+      max-height: 220px !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -56,6 +86,7 @@ function getCheckedWeekDays(scope) {
 }
 
 async function renderDashboardCharts() {
+  ensureUiOverrides();
   const data = await api('/api/admin/dashboard-stats');
 
   renderDailyChart(data.daily);
@@ -65,75 +96,32 @@ async function renderDashboardCharts() {
 }
 function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
-  const select = document.getElementById('dailyGroupFilter');
-  if (!ctx || !Array.isArray(data)) return;
+  if (!ctx) return;
 
-  const groups = [...new Set(data.map(d => d.group_name || 'ללא קבוצה'))];
-  if (select) {
-    const previous = state.dashboardChartView && groups.includes(state.dashboardChartView)
-      ? state.dashboardChartView
-      : (groups[0] || '');
-    select.innerHTML = groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
-    select.value = previous;
-    state.dashboardChartView = previous;
-    localStorage.setItem('vclock_dashboard_chart_view', previous);
-    select.onchange = () => {
-      state.dashboardChartView = select.value;
-      localStorage.setItem('vclock_dashboard_chart_view', state.dashboardChartView);
-      renderDailyChart(data);
-    };
+  if (dashboardChartRefs.daily) {
+    dashboardChartRefs.daily.destroy();
   }
 
-  const currentGroup = (select && select.value) || state.dashboardChartView || groups[0] || '';
-  const filtered = data.filter(d => (d.group_name || 'ללא קבוצה') === currentGroup);
-
-  if (state.dailyChartInstance) {
-    state.dailyChartInstance.destroy();
-  }
-
-  state.dailyChartInstance = new Chart(ctx, {
-    type: 'bar',
+  dashboardChartRefs.daily = new Chart(ctx, {
+    type: 'line',
     data: {
-      labels: filtered.map(d => d.day),
-      datasets: [
-        {
-          label: 'הגיעו',
-          data: filtered.map(d => Number(d.arrived_employees || 0))
-        },
-        {
-          label: 'רשומים בקטגוריה',
-          data: filtered.map(d => Number(d.total_employees || 0))
-        },
-        {
-          label: 'אחוז הגעה',
-          data: filtered.map(d => Number(d.attendance_percent || 0)),
-          type: 'line',
-          yAxisID: 'y1',
-          tension: 0.3
-        }
-      ]
+      labels: data.map(d => d.day),
+      datasets: [{
+        label: 'עובדים ביום',
+        data: data.map(d => d.count),
+        tension: 0.3,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37, 99, 235, 0.12)',
+        pointBackgroundColor: '#2563eb',
+        fill: true
+      }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom' },
-        tooltip: {
-          callbacks: {
-            afterBody: (items) => {
-              const row = filtered[items[0].dataIndex];
-              return [`קטגוריה: ${row.group_name}`, `הגיעו ${row.arrived_employees} מתוך ${row.total_employees}`];
-            }
-          }
-        }
-      },
-      scales: {
-        y: { beginAtZero: true, ticks: { precision: 0 } },
-        y1: {
-          beginAtZero: true,
-          max: 100,
-          position: 'right',
-          grid: { drawOnChartArea: false }
+        legend: {
+          position: 'bottom'
         }
       }
     }
@@ -142,48 +130,65 @@ function renderDailyChart(data) {
 function renderInOutChart(data) {
   const ctx = document.getElementById('chartInOut');
   if (!ctx) return;
-  if (state.inOutChartInstance) state.inOutChartInstance.destroy();
 
-  state.inOutChartInstance = new Chart(ctx, {
+  if (dashboardChartRefs.inOut) {
+    dashboardChartRefs.inOut.destroy();
+  }
+
+  dashboardChartRefs.inOut = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: data.map(d => d.day),
       datasets: [
         {
           label: 'כניסות',
-          data: data.map(d => d.ins)
+          data: data.map(d => d.ins),
+          backgroundColor: '#16a34a'
         },
         {
           label: 'יציאות',
-          data: data.map(d => d.outs)
+          data: data.map(d => d.outs),
+          backgroundColor: '#2563eb'
         }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom' } }
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
     }
   });
 }
 function renderAbsenceChart(data) {
   const ctx = document.getElementById('chartAbsence');
   if (!ctx) return;
-  if (state.absenceChartInstance) state.absenceChartInstance.destroy();
 
-  state.absenceChartInstance = new Chart(ctx, {
+  if (dashboardChartRefs.absence) {
+    dashboardChartRefs.absence.destroy();
+  }
+
+  dashboardChartRefs.absence = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: data.map(d => d.full_name),
       datasets: [{
         label: 'ימי חיסור',
-        data: data.map(d => d.absences)
+        data: data.map(d => d.absences),
+        backgroundColor: '#475569'
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom' } }
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
     }
   });
 }
@@ -1040,31 +1045,19 @@ async function loadDashboard() {
       </div>
     `;
     box.innerHTML += `
-  <div class="card">
-    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-      <h3 style="margin:0">📈 הגעה לפי קטגוריה</h3>
-      <div style="min-width:220px">
-        <label class="label" style="margin-bottom:4px">בחר קטגוריה</label>
-        <select class="select" id="dailyGroupFilter"></select>
-      </div>
-    </div>
-    <div style="height:260px">
-      <canvas id="chartDaily"></canvas>
-    </div>
+  <div class="card dashboard-chart-card">
+    <h3>📈 עובדים ביום</h3>
+    <div class="chart-box"><canvas id="chartDaily"></canvas></div>
   </div>
 
-  <div class="card">
+  <div class="card dashboard-chart-card">
     <h3>📊 כניסות / יציאות</h3>
-    <div style="height:220px">
-      <canvas id="chartInOut"></canvas>
-    </div>
+    <div class="chart-box"><canvas id="chartInOut"></canvas></div>
   </div>
 
-  <div class="card">
+  <div class="card dashboard-chart-card">
     <h3>🔥 הכי הרבה חיסורים</h3>
-    <div style="height:220px">
-      <canvas id="chartAbsence"></canvas>
-    </div>
+    <div class="chart-box"><canvas id="chartAbsence"></canvas></div>
   </div>
 
   <div class="card">
