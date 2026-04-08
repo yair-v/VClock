@@ -108,7 +108,7 @@ function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
 
   new Chart(ctx, {
-    type: 'line',
+    type: 'pie',
     data: {
       labels: data.map(d => d.day),
       datasets: [{
