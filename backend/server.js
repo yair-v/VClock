@@ -1597,12 +1597,33 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
     await ensureAutoCloseSpecialRecords();
 
     const daily = await query(`
-      SELECT DATE(record_time) as day,
-             COUNT(DISTINCT user_id) as count
-      FROM attendance_records
-      WHERE record_type = 'in'
-      GROUP BY day
-      ORDER BY day ASC
+      SELECT
+        d.day::date AS day,
+        COALESCE(wg.name, 'ללא קבוצה') AS group_name,
+        COUNT(DISTINCT u.id)::int AS total_employees,
+        COUNT(DISTINCT ar.user_id)::int AS arrived_employees,
+        CASE
+          WHEN COUNT(DISTINCT u.id) = 0 THEN 0
+          ELSE ROUND(
+            (COUNT(DISTINCT ar.user_id)::numeric / COUNT(DISTINCT u.id)::numeric) * 100,
+            1
+          )
+        END AS attendance_percent
+      FROM (
+        SELECT DISTINCT DATE(record_time) AS day
+        FROM attendance_records
+      ) d
+      JOIN users u
+      ON u.role = 'employee'
+      AND u.is_active = 1
+      LEFT JOIN work_groups wg
+      ON wg.id = u.work_group_id
+      LEFT JOIN attendance_records ar
+      ON ar.user_id = u.id
+      AND ar.record_type = 'in'
+      AND DATE(ar.record_time) = d.day
+      GROUP BY d.day, COALESCE(wg.name, 'ללא קבוצה')
+      ORDER BY d.day ASC, group_name ASC
     `);
 
     const inOut = await query(`
