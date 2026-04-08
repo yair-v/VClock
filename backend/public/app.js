@@ -194,12 +194,6 @@ function boolText(value) {
   return value ? 'כן' : 'לא';
 }
 
-
-function classifyTomorrowLabel(calendar) {
-  if (!calendar) return 'מחר: יום עבודה רגיל';
-  return calendar.tomorrow_summary || 'מחר: יום עבודה רגיל';
-}
-
 function rowFlagBadges(record) {
   const badges = [];
   if (record.requires_admin_approval) badges.push('<span class="mini-badge status-pending">דורש אישור</span>');
@@ -208,76 +202,12 @@ function rowFlagBadges(record) {
   return badges.join(' ');
 }
 
-function getTodayWeekDayName() {
-  const dayIndex = new Date().getDay();
-  return WEEK_DAYS[dayIndex] || 'ראשון';
+function shortText(value, maxLength = 28) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
 }
 
-function chooseAutomaticWorkDayType(status, options) {
-  const normalizedOptions = Array.isArray(options) ? options.filter(Boolean) : [];
-  const todayWeekDay = getTodayWeekDayName();
-
-  const calendarDefault =
-    status?.calendar_holiday?.default_work_day_type ||
-    status?.holiday?.default_work_day_type ||
-    status?.todayHoliday?.default_work_day_type ||
-    '';
-
-  const holidayName =
-    status?.calendar_holiday?.holiday_name ||
-    status?.holiday?.holiday_name ||
-    status?.todayHoliday?.holiday_name ||
-    '';
-
-  if (calendarDefault && normalizedOptions.includes(calendarDefault)) {
-    return {
-      value: calendarDefault,
-      reason: holidayName ? `נבחר אוטומטית לפי חג/מועד: ${holidayName}` : 'נבחר אוטומטית לפי חג/מועד'
-    };
-  }
-
-  if (todayWeekDay === 'שבת' && normalizedOptions.includes('שבת')) {
-    return {
-      value: 'שבת',
-      reason: 'נבחר אוטומטית כי היום שבת'
-    };
-  }
-
-  if (todayWeekDay === 'שישי') {
-    if (status?.schedule?.friday_allowed_today && normalizedOptions.includes('שישי')) {
-      return {
-        value: 'שישי',
-        reason: 'נבחר אוטומטית לפי שישי מאושר לעבודה רגילה'
-      };
-    }
-
-    if (status?.schedule?.friday_allowed_today === false && normalizedOptions.includes('שישי בתשלום')) {
-      return {
-        value: 'שישי בתשלום',
-        reason: 'נבחר אוטומטית לפי שישי לא מאושר לעבודה רגילה'
-      };
-    }
-
-    if (normalizedOptions.includes('שישי')) {
-      return {
-        value: 'שישי',
-        reason: 'נבחר אוטומטית כי היום שישי'
-      };
-    }
-  }
-
-  if (normalizedOptions.includes('יום רגיל')) {
-    return {
-      value: 'יום רגיל',
-      reason: 'נבחר אוטומטית כברירת מחדל'
-    };
-  }
-
-  return {
-    value: normalizedOptions[0] || '',
-    reason: normalizedOptions[0] ? 'נבחר אוטומטית לפי האפשרות הראשונה הזמינה' : ''
-  };
-}
 
 function render() {
   if (!state.user) return renderLogin();
@@ -358,8 +288,8 @@ function renderLogin() {
     <div class="mobile-shell">
       <div class="card hero-card center">
         <div class="badge">VClock 2026</div>
-        <h1 class="title title-on-light">מערכת שעון נוכחות</h1>
-        <p class="subtitle subtitle-on-light">כניסה עם שם עובד/מספר עובד וסיסמה</p>
+        <h1 class="title">מערכת שעון נוכחות</h1>
+        <p class="subtitle">כניסה עם שם עובד/מספר עובד וסיסמה</p>
         <div id="msgBox" class="hidden"></div>
 
         <div class="grid" style="text-align:right">
@@ -374,7 +304,7 @@ function renderLogin() {
         </div>
 
         <div class="hero-login-actions">
-                   <button class="btn btn-primary btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+                   <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
         </div>
 
         <hr class="sep" />
@@ -577,20 +507,30 @@ async function renderEmployee() {
           <div>
             <label class="label">סוג יום עבודה</label>
             <select class="select" id="workDayType"></select>
-            <div class="small auto-day-type-hint" id="autoWorkDayTypeHint"></div>
+            <div class="small small-on-light" id="workDayTypeHint" style="margin-top:6px"></div>
           </div>
 
-          <div class="grid-span-2">
+          <div>
             <label class="label">ימי העבודה שלי</label>
-            <div class="schedule-box compact-schedule-box" id="employeeScheduleBox">טוען...</div>
+            <div class="schedule-box" id="employeeScheduleBox">טוען...</div>
           </div>
 
-          <div class="grid-span-2">
+          <div>
             <label class="label">הערה</label>
             <textarea class="textarea" id="note"></textarea>
           </div>
 
-          <div class="grid grid-2 grid-span-2">
+          <div>
+            <label class="label">ארוחות</label>
+            <div class="row" style="margin-top:8px">
+              <label><input type="checkbox" id="mealMorning" /> א. בוקר</label>
+              <label><input type="checkbox" id="mealNoon" /> א. צהריים</label>
+              <label><input type="checkbox" id="mealEvening" /> א. ערב</label>
+            </div>
+            <div class="small" id="mealInfo" style="margin-top:8px"></div>
+          </div>
+
+          <div class="grid grid-2">
             <button class="btn btn-ok btn-block" id="checkInBtn">כניסה לעבודה</button>
             <button class="btn btn-danger btn-block" id="checkOutBtn">יציאה מהעבודה</button>
           </div>
@@ -640,7 +580,35 @@ async function renderEmployee() {
   };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    render();
+    
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
+
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+render();
   };
 
   function updateClock() {
@@ -656,6 +624,7 @@ async function renderEmployee() {
     state.employeeStatus = status;
 
     const select = document.getElementById('workDayType');
+    const workDayTypeHint = document.getElementById('workDayTypeHint');
     const options = status.workDayTypes && status.workDayTypes.length
       ? status.workDayTypes
       : ['יום רגיל'];
@@ -664,46 +633,48 @@ async function renderEmployee() {
       .map(v => `<option>${v}</option>`)
       .join('');
 
-    const hintEl = document.getElementById('autoWorkDayTypeHint');
-    const calendar = status.calendar || {};
-    let autoType = 'יום רגיל';
-    let hintText = 'נבחר אוטומטית: יום רגיל';
-
-    if (calendar.tomorrow_recommended_type) {
-      // no-op for tomorrow; displayed in schedule box only
+    if (status.lastRecord && status.lastRecord.record_type === 'in' && !status.user.day_closed) {
+      const lockedType = status.lastRecord.work_day_type || 'יום רגיל';
+      select.innerHTML = `<option value="${escapeHtml(lockedType)}">${escapeHtml(lockedType)}</option>`;
+      select.value = lockedType;
+      select.disabled = true;
+      if (workDayTypeHint) {
+        workDayTypeHint.textContent = `הסגירה תתבצע רק באותו סוג יום: ${lockedType}`;
+      }
+    } else {
+      select.disabled = false;
+      if (workDayTypeHint) {
+        workDayTypeHint.textContent = 'בפתיחת יום ניתן לבחור את סוג היום. לאחר פתיחה, הסגירה תישאר על אותו סוג.';
+      }
     }
 
-    if (calendar.today_recommended_type && options.includes(calendar.today_recommended_type)) {
-      autoType = calendar.today_recommended_type;
-      hintText = `נבחר אוטומטית: ${calendar.today_recommended_type}${calendar.today_holiday_name ? ` (${calendar.today_holiday_name})` : ''}`;
-    } else if (calendar.weekday_name === 'שישי' && options.includes(status.schedule?.friday_allowed_today ? 'שישי' : 'שישי בתשלום')) {
-      autoType = status.schedule?.friday_allowed_today ? 'שישי' : 'שישי בתשלום';
-      hintText = `נבחר אוטומטית: ${autoType}`;
-    } else if (calendar.weekday_name === 'שבת' && options.includes('שבת')) {
-      autoType = 'שבת';
-      hintText = 'נבחר אוטומטית: שבת';
-    } else if (options.includes('יום רגיל')) {
-      autoType = 'יום רגיל';
-      hintText = 'נבחר אוטומטית: יום רגיל';
-    }
+    const canUseMeals =
+      status.lastRecord &&
+      status.lastRecord.record_type === 'in' &&
+      !status.user.day_closed;
 
-    select.value = autoType;
-    if (hintEl) hintEl.textContent = hintText;
-
-    const autoChoice = chooseAutomaticWorkDayType(status, options);
-    if (autoChoice.value && options.includes(autoChoice.value)) {
-      select.value = autoChoice.value;
-    }
-
-    const autoHint = document.getElementById('autoWorkDayTypeHint');
-    if (autoHint) {
-      autoHint.textContent = autoChoice.reason || '';
-    }
+    setupMealCheckboxes(!!canUseMeals);
 
     const scheduleBox = document.getElementById('employeeScheduleBox');
     if (scheduleBox) {
-      const tomorrowSummary = status.calendar?.tomorrow_summary || 'מחר: יום עבודה רגיל';
-      scheduleBox.innerHTML = `<div class="next-day-summary">${escapeHtml(tomorrowSummary)}</div>`;
+      const groupName = status.schedule?.work_group_name
+        ? `קבוצה: ${status.schedule.work_group_name}`
+        : 'ללא קבוצה';
+      const customDays = formatWeekDays(status.schedule?.allowed_work_days || []);
+      const groupDays = formatWeekDays(status.schedule?.work_group_days || []);
+
+      const fridayRotationText = status.schedule?.friday_allowed_today === null
+        ? 'לא יום שישי כרגע'
+        : (status.schedule?.friday_allowed_today ? 'השישי הנוכחי מאושר לעבודה רגילה' : 'השישי הנוכחי אינו מאושר לעבודה רגילה');
+
+      scheduleBox.innerHTML = `
+        <div><strong>${groupName}</strong></div>
+        <div class="small">ימי עבודה מהקבוצה: ${groupDays}</div>
+        <div class="small">ימי עבודה אישיים: ${customDays}</div>
+        <div class="small">סבב שישי: ${status.schedule?.friday_rotation_start_allowed ? 'מתחיל בשישי עובד' : 'מתחיל בשישי לא עובד'}</div>
+        <div class="small">עוגן סבב שישי: ${status.schedule?.friday_rotation_anchor_date || 'לא הוגדר'}</div>
+        <div class="small">מצב שישי נוכחי: ${fridayRotationText}</div>
+      `;
     }
 
     const checkInBtn = document.getElementById('checkInBtn');
@@ -714,16 +685,6 @@ async function renderEmployee() {
       checkInBtn.disabled = false;
       checkInBtn.title = '';
     }
-  }
-
-  const workDayTypeSelect = document.getElementById('workDayType');
-  if (workDayTypeSelect) {
-    workDayTypeSelect.addEventListener('change', () => {
-      const autoHint = document.getElementById('autoWorkDayTypeHint');
-      if (autoHint) {
-        autoHint.textContent = `נבחר ידנית: ${workDayTypeSelect.value}`;
-      }
-    });
   }
 
   document.getElementById('checkInBtn').onclick = async () => {
@@ -765,31 +726,34 @@ async function renderEmployee() {
 
       document.getElementById('myRecords').innerHTML = `
       <div class="table-wrap">
-        <table>
+        <table class="my-records-table">
           <thead>
             <tr>
               <th>סוג</th>
               <th>סוג יום</th>
               <th>סטטוס</th>
               <th>הערה</th>
-              <th>חריגה / הערת מנהל</th>
-              <th>תאריך ושעה</th>
+              <th>חריגה</th>
+              <th>שעה</th>
             </tr>
           </thead>
           <tbody>
-            ${rows.map(r => `
+            ${rows.map(r => {
+              const noteText = shortText(r.note || '', 22);
+              const issueText = shortText([r.exception_reason, r.manager_note].filter(Boolean).join(' | ') || '', 22);
+              return `
               <tr>
                 <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
                 <td>
-                  <div>${r.work_day_type}</div>
+                  <div>${escapeHtml(shortText(r.work_day_type || '', 16))}</div>
                   <div class="row-badges">${rowFlagBadges(r)}</div>
                 </td>
                 <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
-                <td>${r.note || ''}</td>
-                <td>${[r.exception_reason, r.manager_note].filter(Boolean).join(' | ') || ''}</td>
+                <td title="${escapeHtml(r.note || '')}">${escapeHtml(noteText)}</td>
+                <td title="${escapeHtml([r.exception_reason, r.manager_note].filter(Boolean).join(' | ') || '')}">${escapeHtml(issueText)}</td>
                 <td>${fmtDateTime(r.record_time)}</td>
               </tr>
-            `).join('') || '<tr><td colspan="6">אין דיווחים להיום</td></tr>'}
+            `}).join('') || '<tr><td colspan="6">אין דיווחים ליום העבודה הנוכחי</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -831,7 +795,14 @@ async function renderEmployee() {
     try {
       const workDayType = document.getElementById('workDayType').value;
       const noteText = document.getElementById('note').value;
-      const note = noteText.trim();
+
+      const selectedMeals = [];
+      if (document.getElementById('mealMorning')?.checked) selectedMeals.push('א. בוקר');
+      if (document.getElementById('mealNoon')?.checked) selectedMeals.push('א. צהריים');
+      if (document.getElementById('mealEvening')?.checked) selectedMeals.push('א. ערב');
+
+      const mealsText = selectedMeals.length ? ` | ארוחות: ${selectedMeals.join(', ')}` : '';
+      const note = `${noteText || ''}${mealsText}`.trim();
 
       const result = await api('/api/attendance', {
         method: 'POST',
@@ -919,7 +890,35 @@ async function renderAdmin() {
 
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    render();
+    
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
+
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+render();
   };
 
   document.getElementById('shutdownBtn').onclick = async () => {
@@ -1294,11 +1293,7 @@ async function loadMonthly() {
 
 async function editUser(id) {
   try {
-    const [users, groups] = await Promise.all([
-      api('/api/admin/users'),
-      api('/api/admin/work-groups')
-    ]);
-
+    const users = await api('/api/admin/users');
     const user = users.find(u => u.id === id);
 
     if (!user) {
@@ -1306,118 +1301,41 @@ async function editUser(id) {
       return;
     }
 
-    closeModal();
+    const full_name = prompt('שם חדש:', user.full_name);
+    if (full_name === null) return;
 
-    const host = document.createElement('div');
-    host.id = 'globalModal';
-    host.className = 'modal-backdrop';
-    host.innerHTML = `
-      <div class="modal modal-wide">
-        <h3 class="modal-title">עריכת משתמש</h3>
-        <form id="userEditForm" class="grid grid-2 modal-form">
-          <div>
-            <label class="label">קוד עובד</label>
-            <input class="input" name="employee_code" value="${escapeHtml(user.employee_code || '')}" required />
-          </div>
+    const password = prompt('סיסמה חדשה (אפשר להשאיר ריק):', '');
+    if (password === null) return;
 
-          <div>
-            <label class="label">שם מלא</label>
-            <input class="input" name="full_name" value="${escapeHtml(user.full_name || '')}" required />
-          </div>
+    const role = prompt('תפקיד (admin / employee):', user.role);
+    if (role === null) return;
 
-          <div>
-            <label class="label">סיסמה חדשה</label>
-            <input class="input" type="password" name="password" placeholder="השאר ריק אם לא משנים" />
-            <div class="field-hint">אם לא תרשום סיסמה חדשה, הסיסמה הקיימת תישאר.</div>
-          </div>
+    const friday_rotation_anchor_date = prompt('תאריך עוגן לשישי לסירוגין (YYYY-MM-DD):', (user.friday_rotation_anchor_date || '').slice(0, 10));
+    if (friday_rotation_anchor_date === null) return;
 
-          <div>
-            <label class="label">תפקיד</label>
-            <select class="select" name="role">
-              <option value="employee" ${user.role === 'employee' ? 'selected' : ''}>employee</option>
-              <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>admin</option>
-            </select>
-          </div>
+    const fridayStartAnswer = prompt('האם מהתאריך הזה שישי רגיל מאושר? כתוב כן או לא', user.friday_rotation_start_allowed ? 'כן' : 'לא');
+    if (fridayStartAnswer === null) return;
+    const friday_rotation_start_allowed = ['כן', 'yes', 'y', '1', 'true'].includes(String(fridayStartAnswer).trim().toLowerCase());
 
-          <div>
-            <label class="label">קבוצת עבודה</label>
-            <select class="select" name="work_group_id">
-              <option value="">ללא קבוצה</option>
-              ${groups.map(group => `<option value="${group.id}" ${String(user.work_group_id || '') === String(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}
-            </select>
-          </div>
+    const is_active = confirm('האם המשתמש יהיה פעיל?');
 
-          <div>
-            <label class="label">תאריך עוגן שישי לסירוגין</label>
-            <input class="input" type="date" name="friday_rotation_anchor_date" value="${escapeHtml((user.friday_rotation_anchor_date || '').slice(0, 10))}" />
-          </div>
+    await api('/api/admin/users/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({
+        full_name,
+        password,
+        role,
+        is_active,
+        day_closed: user.day_closed,
+        work_group_id: user.work_group_id,
+        allowed_work_days: user.allowed_work_days || [],
+        friday_rotation_anchor_date,
+        friday_rotation_start_allowed
+      })
+    });
 
-          <div class="grid-span-2">
-            <label class="label">ימי עבודה אישיים</label>
-            ${renderWeekdayCheckboxes('edit_user_work_days', user.allowed_work_days || [], 'edit_user_days')}
-          </div>
-
-          <div>
-            <label class="checkbox-inline">
-              <input type="checkbox" name="friday_rotation_start_allowed" ${user.friday_rotation_start_allowed ? 'checked' : ''} />
-              <span>השישי של תאריך העוגן הוא שישי עבודה</span>
-            </label>
-          </div>
-
-          <div>
-            <label class="checkbox-inline">
-              <input type="checkbox" name="is_active" ${user.is_active ? 'checked' : ''} />
-              <span>משתמש פעיל</span>
-            </label>
-          </div>
-
-          <div>
-            <label class="checkbox-inline">
-              <input type="checkbox" name="day_closed" ${user.day_closed ? 'checked' : ''} />
-              <span>היום סגור לעובד</span>
-            </label>
-          </div>
-
-          <div class="grid-span-2 form-actions">
-            <button type="submit" class="btn btn-primary">שמור שינויים</button>
-            <button type="button" class="btn btn-light" id="cancelUserEditBtn">ביטול</button>
-          </div>
-        </form>
-      </div>
-    `;
-
-    document.body.appendChild(host);
-
-    document.getElementById('cancelUserEditBtn').onclick = closeModal;
-
-    document.getElementById('userEditForm').onsubmit = async (e) => {
-      e.preventDefault();
-      const form = e.target;
-
-      try {
-        await api('/api/admin/users/' + id, {
-          method: 'PUT',
-          body: JSON.stringify({
-            employee_code: form.employee_code.value.trim(),
-            full_name: form.full_name.value.trim(),
-            password: form.password.value,
-            role: form.role.value,
-            is_active: form.is_active.checked,
-            day_closed: form.day_closed.checked,
-            work_group_id: form.work_group_id.value || null,
-            allowed_work_days: getCheckedWeekDays(form),
-            friday_rotation_anchor_date: form.friday_rotation_anchor_date.value || null,
-            friday_rotation_start_allowed: form.friday_rotation_start_allowed.checked
-          })
-        });
-
-        closeModal();
-        toast('success', 'המשתמש עודכן בהצלחה');
-        loadUsers();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
+    alert('המשתמש עודכן בהצלחה');
+    loadUsers();
   } catch (err) {
     alert(err.message);
   }
@@ -1637,6 +1555,43 @@ async function loadSettings() {
       </div>
 
       <div class="card" style="background:#f8fafc">
+        <h3 style="margin-top:0">ניהול חגים</h3>
+        <form id="addHolidayForm" class="grid grid-2">
+          <div>
+            <label class="label">תאריך חג</label>
+            <input class="input" type="date" name="holiday_date" required />
+          </div>
+          <div>
+            <label class="label">שם חג</label>
+            <input class="input" name="holiday_name" required />
+          </div>
+          <div class="row">
+            <button class="btn btn-primary" type="submit">שמור חג</button>
+          </div>
+        </form>
+        <div class="table-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>תאריך</th>
+                <th>שם חג</th>
+                <th>פעולה</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${holidays.map((holiday) => `
+                <tr>
+                  <td>${holiday.holiday_date}</td>
+                  <td>${escapeHtml(holiday.holiday_name)}</td>
+                  <td><button class="btn btn-danger" type="button" onclick="deleteHoliday(${holiday.id})">מחק</button></td>
+                </tr>
+              `).join('') || '<tr><td colspan="3">אין חגים מוגדרים</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" style="background:#f8fafc">
         <h3 style="margin-top:0">ניהול קבוצות משתמשים</h3>
         <form id="addWorkGroupForm" class="grid">
           <div class="grid grid-2">
@@ -1737,44 +1692,6 @@ async function loadSettings() {
                   </td>
                 </tr>
               `).join('') || '<tr><td colspan="7">אין עובדים</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-
-      <div class="card" style="background:#f8fafc">
-        <h3 style="margin-top:0">ניהול חגים</h3>
-        <form id="addHolidayForm" class="grid grid-2">
-          <div>
-            <label class="label">תאריך חג</label>
-            <input class="input" type="date" name="holiday_date" required />
-          </div>
-          <div>
-            <label class="label">שם חג</label>
-            <input class="input" name="holiday_name" required />
-          </div>
-          <div class="row">
-            <button class="btn btn-primary" type="submit">שמור חג</button>
-          </div>
-        </form>
-        <div class="table-wrap holiday-table-wrap" style="margin-top:16px">
-          <table>
-            <thead>
-              <tr>
-                <th>תאריך</th>
-                <th>שם חג</th>
-                <th>פעולה</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${holidays.map((holiday) => `
-                <tr>
-                  <td>${holiday.holiday_date}</td>
-                  <td>${escapeHtml(holiday.holiday_name)}</td>
-                  <td><button class="btn btn-danger" type="button" onclick="deleteHoliday(${holiday.id})">מחק</button></td>
-                </tr>
-              `).join('') || '<tr><td colspan="3">אין חגים מוגדרים</td></tr>'}
             </tbody>
           </table>
         </div>
