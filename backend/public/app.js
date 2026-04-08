@@ -17,6 +17,153 @@ let dashboardChartRefs = {
   absence: null
 };
 
+const DASHBOARD_WIDGETS = {
+  daily: { key: 'daily', title: '📈 עובדים ביום', type: 'chart', canvasId: 'chartDaily' },
+  inOut: { key: 'inOut', title: '📊 כניסות / יציאות', type: 'chart', canvasId: 'chartInOut' },
+  absence: { key: 'absence', title: '🔥 הכי הרבה חיסורים', type: 'chart', canvasId: 'chartAbsence' },
+  heatmap: { key: 'heatmap', title: '🟩 Heatmap נוכחות', type: 'heatmap', containerId: 'heatmap' }
+};
+
+function getDefaultDashboardLayout() {
+  return [
+    { key: 'daily', visible: true },
+    { key: 'inOut', visible: true },
+    { key: 'absence', visible: true },
+    { key: 'heatmap', visible: true }
+  ];
+}
+
+function getDashboardLayout() {
+  try {
+    const raw = localStorage.getItem('vclock_dashboard_layout');
+    const parsed = raw ? JSON.parse(raw) : null;
+    const validKeys = Object.keys(DASHBOARD_WIDGETS);
+    const incoming = Array.isArray(parsed) ? parsed.filter((item) => item && validKeys.includes(item.key)) : [];
+    const merged = [];
+
+    incoming.forEach((item) => {
+      if (!merged.some((existing) => existing.key === item.key)) {
+        merged.push({ key: item.key, visible: item.visible !== false });
+      }
+    });
+
+    validKeys.forEach((key) => {
+      if (!merged.some((item) => item.key === key)) {
+        merged.push({ key, visible: true });
+      }
+    });
+
+    return merged;
+  } catch (err) {
+    return getDefaultDashboardLayout();
+  }
+}
+
+function saveDashboardLayout(layout) {
+  localStorage.setItem('vclock_dashboard_layout', JSON.stringify(layout));
+}
+
+function formatDashboardDateLabel(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat('he-IL', { day: '2-digit', month: '2-digit' }).format(date);
+}
+
+function renderDashboardWidgets(layout) {
+  return layout
+    .filter((item) => item.visible)
+    .map((item) => {
+      const widget = DASHBOARD_WIDGETS[item.key];
+      if (!widget) return '';
+
+      if (widget.type === 'heatmap') {
+        return `
+          <div class="card dashboard-widget-card" data-widget-key="${widget.key}">
+            <div class="dashboard-widget-head">
+              <h3>${widget.title}</h3>
+            </div>
+            <div class="heatmap-wrap">
+              <div id="${widget.containerId}" class="dashboard-heatmap"></div>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="card dashboard-widget-card dashboard-chart-card" data-widget-key="${widget.key}">
+          <div class="dashboard-widget-head">
+            <h3>${widget.title}</h3>
+          </div>
+          <div class="chart-box"><canvas id="${widget.canvasId}"></canvas></div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function bindDashboardLayoutControls() {
+  const host = document.getElementById('dashboardLayoutControls');
+  if (!host) return;
+
+  const renderControls = () => {
+    const layout = getDashboardLayout();
+    host.innerHTML = layout.map((item, index) => {
+      const widget = DASHBOARD_WIDGETS[item.key];
+      return `
+        <div class="dashboard-layout-item">
+          <label class="checkbox-inline dashboard-layout-toggle">
+            <input type="checkbox" data-dashboard-toggle="${item.key}" ${item.visible ? 'checked' : ''} />
+            <span>${widget.title}</span>
+          </label>
+          <div class="dashboard-layout-actions">
+            <button class="btn btn-light" type="button" data-dashboard-move="up" data-dashboard-key="${item.key}" ${index === 0 ? 'disabled' : ''}>למעלה</button>
+            <button class="btn btn-light" type="button" data-dashboard-move="down" data-dashboard-key="${item.key}" ${index === layout.length - 1 ? 'disabled' : ''}>למטה</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    host.querySelectorAll('[data-dashboard-toggle]').forEach((input) => {
+      input.onchange = async (event) => {
+        const key = event.target.getAttribute('data-dashboard-toggle');
+        const nextLayout = getDashboardLayout().map((item) => item.key === key ? { ...item, visible: !!event.target.checked } : item);
+        saveDashboardLayout(nextLayout);
+        renderControls();
+        await refreshDashboardWidgetsOnly();
+      };
+    });
+
+    host.querySelectorAll('[data-dashboard-move]').forEach((button) => {
+      button.onclick = async () => {
+        const key = button.getAttribute('data-dashboard-key');
+        const direction = button.getAttribute('data-dashboard-move');
+        const nextLayout = getDashboardLayout();
+        const index = nextLayout.findIndex((item) => item.key === key);
+        if (index === -1) return;
+        const swapIndex = direction === 'up' ? index - 1 : index + 1;
+        if (swapIndex < 0 || swapIndex >= nextLayout.length) return;
+        const temp = nextLayout[index];
+        nextLayout[index] = nextLayout[swapIndex];
+        nextLayout[swapIndex] = temp;
+        saveDashboardLayout(nextLayout);
+        renderControls();
+        await refreshDashboardWidgetsOnly();
+      };
+    });
+  };
+
+  renderControls();
+}
+
+async function refreshDashboardWidgetsOnly() {
+  const widgetsHost = document.getElementById('dashboardWidgets');
+  if (!widgetsHost) return;
+  const layout = getDashboardLayout();
+  widgetsHost.innerHTML = renderDashboardWidgets(layout);
+  await renderDashboardCharts();
+}
+
 function ensureUiOverrides() {
   if (document.getElementById('vclockDynamicOverrides')) return;
   const style = document.createElement('style');
@@ -88,11 +235,12 @@ function getCheckedWeekDays(scope) {
 async function renderDashboardCharts() {
   ensureUiOverrides();
   const data = await api('/api/admin/dashboard-stats');
+  const layout = getDashboardLayout().filter((item) => item.visible).map((item) => item.key);
 
-  renderDailyChart(data.daily);
-  renderInOutChart(data.inOut);
-  renderAbsenceChart(data.absences);
-  renderHeatmap(data.heatmap);
+  if (layout.includes('daily')) renderDailyChart(data.daily);
+  if (layout.includes('inOut')) renderInOutChart(data.inOut);
+  if (layout.includes('absence')) renderAbsenceChart(data.absences);
+  if (layout.includes('heatmap')) renderHeatmap(data.heatmap);
 }
 function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
@@ -105,7 +253,7 @@ function renderDailyChart(data) {
   dashboardChartRefs.daily = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: data.map(d => d.day),
+      labels: data.map(d => formatDashboardDateLabel(d.day)),
       datasets: [{
         label: 'עובדים ביום',
         data: data.map(d => d.count),
@@ -138,7 +286,7 @@ function renderInOutChart(data) {
   dashboardChartRefs.inOut = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: data.map(d => d.day),
+      labels: data.map(d => formatDashboardDateLabel(d.day)),
       datasets: [
         {
           label: 'כניסות',
@@ -174,7 +322,7 @@ function renderAbsenceChart(data) {
   dashboardChartRefs.absence = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: data.map(d => d.full_name),
+      labels: data.map(d => d.full_name || ''),
       datasets: [{
         label: 'ימי חיסור',
         data: data.map(d => d.absences),
@@ -194,19 +342,16 @@ function renderAbsenceChart(data) {
 }
 function renderHeatmap(data) {
   const container = document.getElementById('heatmap');
+  if (!container) return;
 
   container.innerHTML = '';
 
-  data.forEach(d => {
+  data.forEach((d) => {
     const div = document.createElement('div');
-    div.style.width = '12px';
-    div.style.height = '12px';
-    div.style.margin = '2px';
-
-    const intensity = Math.min(d.value / 5, 1);
-
-    div.style.background = `rgba(34,197,94,${intensity})`;
-
+    div.className = 'heatmap-cell';
+    const intensity = Math.min(Number(d.value || 0) / 6, 1);
+    div.style.background = `rgba(37, 99, 235, ${Math.max(intensity, 0.12)})`;
+    div.title = `${formatDashboardDateLabel(d.day)} - ${d.value || 0} כניסות`;
     container.appendChild(div);
   });
 }
@@ -381,7 +526,7 @@ function renderLogin() {
         </div>
 
         <div class="hero-login-actions">
-                   <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+                   <button class="btn btn-primary btn-block login-submit-btn" id="passwordLoginBtn">כניסה עם סיסמה</button>
         </div>
 
         <hr class="sep" />
@@ -1003,6 +1148,7 @@ async function loadDashboard() {
   const box = document.getElementById('tabContent');
   try {
     const d = await api('/api/admin/dashboard');
+    const layout = getDashboardLayout();
 
     box.innerHTML = `
       <h2 style="margin-top:0">דשבורד</h2>
@@ -1014,9 +1160,14 @@ async function loadDashboard() {
       </div>
 
       <div class="card" style="margin-top:16px;background:#f8fafc">
-        <h3 style="margin-top:0">בקשות עובדים לפעולה</h3>
+        <div class="section-head">
+          <div>
+            <h3 style="margin-top:0">בקשות עובדים לפעולה</h3>
+            <div class="section-subtext">עובדים שסגרו יום וזקוקים לפתיחה מחדש.</div>
+          </div>
+        </div>
         ${d.actionRequests && d.actionRequests.length
-        ? `
+          ? `
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -1027,7 +1178,7 @@ async function loadDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    ${d.actionRequests.map(r => `
+                    ${d.actionRequests.map((r) => `
                       <tr>
                         <td>${r.employee_code}</td>
                         <td>${r.full_name}</td>
@@ -1040,31 +1191,47 @@ async function loadDashboard() {
                 </table>
               </div>
             `
-        : `<div class="small">אין כרגע בקשות עובדים לפעולה.</div>`
-      }
+          : `<div class="small small-on-light">אין כרגע בקשות עובדים לפעולה.</div>`}
+      </div>
+
+      <div class="card dashboard-layout-card">
+        <div class="section-head">
+          <div>
+            <h3 style="margin-top:0">ניהול גרפים</h3>
+            <div class="section-subtext">אפשר להוסיף, להסיר ולשנות את המיקום של כל גרף.</div>
+          </div>
+          <div class="row toolbar-row">
+            <button class="btn btn-light" type="button" id="resetDashboardLayoutBtn">איפוס סידור</button>
+            <button class="btn btn-primary" type="button" id="refreshDashboardBtn">רענן גרפים</button>
+          </div>
+        </div>
+        <div id="dashboardLayoutControls" class="dashboard-layout-controls"></div>
+      </div>
+
+      <div id="dashboardWidgets" class="dashboard-widgets-grid">
+        ${renderDashboardWidgets(layout)}
       </div>
     `;
-    box.innerHTML += `
-  <div class="card dashboard-chart-card">
-    <h3>📈 עובדים ביום</h3>
-    <div class="chart-box"><canvas id="chartDaily"></canvas></div>
-  </div>
 
-  <div class="card dashboard-chart-card">
-    <h3>📊 כניסות / יציאות</h3>
-    <div class="chart-box"><canvas id="chartInOut"></canvas></div>
-  </div>
+    bindDashboardLayoutControls();
 
-  <div class="card dashboard-chart-card">
-    <h3>🔥 הכי הרבה חיסורים</h3>
-    <div class="chart-box"><canvas id="chartAbsence"></canvas></div>
-  </div>
+    const resetBtn = document.getElementById('resetDashboardLayoutBtn');
+    if (resetBtn) {
+      resetBtn.onclick = async () => {
+        const nextLayout = getDefaultDashboardLayout();
+        saveDashboardLayout(nextLayout);
+        bindDashboardLayoutControls();
+        await refreshDashboardWidgetsOnly();
+      };
+    }
 
-  <div class="card">
-    <h3>🟩 Heatmap נוכחות</h3>
-    <div id="heatmap" style="display:flex;flex-wrap:wrap;max-width:300px"></div>
-  </div>
-`;
+    const refreshBtn = document.getElementById('refreshDashboardBtn');
+    if (refreshBtn) {
+      refreshBtn.onclick = async () => {
+        await refreshDashboardWidgetsOnly();
+      };
+    }
+
     await renderDashboardCharts();
   } catch (err) {
     box.innerHTML = `<div class="error">${err.message}</div>`;
@@ -1611,9 +1778,14 @@ async function loadSettings() {
         </div>
       </div>
 
-      <div class="card" style="background:#f8fafc">
-        <h3 style="margin-top:0">ניהול חגים</h3>
-        <form id="addHolidayForm" class="grid grid-2">
+      <div class="card holiday-card-fixed" style="background:#f8fafc">
+        <div class="section-head">
+          <div>
+            <h3 style="margin-top:0">ניהול חגים</h3>
+            <div class="section-subtext">הכרטיס בגובה קבוע, והרשימה הפנימית נגללת.</div>
+          </div>
+        </div>
+        <form id="addHolidayForm" class="grid grid-2 holiday-form-grid">
           <div>
             <label class="label">תאריך חג</label>
             <input class="input" type="date" name="holiday_date" required />
@@ -1622,11 +1794,11 @@ async function loadSettings() {
             <label class="label">שם חג</label>
             <input class="input" name="holiday_name" required />
           </div>
-          <div class="row">
+          <div class="row grid-span-2">
             <button class="btn btn-primary" type="submit">שמור חג</button>
           </div>
         </form>
-        <div class="table-wrap" style="margin-top:16px">
+        <div class="holiday-table-wrap" style="margin-top:16px">
           <table>
             <thead>
               <tr>
