@@ -202,37 +202,6 @@ function rowFlagBadges(record) {
   return badges.join(' ');
 }
 
-function holidayTypeLabel(type) {
-  const map = {
-    full_holiday: 'חג מלא',
-    erev_holiday: 'ערב חג',
-    chol_hamoed: 'חול המועד',
-    memorial_day: 'יום זיכרון',
-    modern_holiday: 'מועד לאומי',
-    minor_holiday: 'מועד',
-    fast_day: 'תענית',
-    manual: 'ידני'
-  };
-  return map[type] || type || '';
-}
-
-function holidayScopeLabel(scope) {
-  const map = {
-    full: 'מלא',
-    partial: 'חלקי',
-    memorial: 'זיכרון',
-    modern: 'לאומי',
-    manual: 'ידני'
-  };
-  return map[scope] || scope || '';
-}
-
-function renderHolidayBadge(record) {
-  if (!record.calendar_holiday_name && !record.calendar_holiday_type) return '';
-  const label = record.calendar_holiday_name || holidayTypeLabel(record.calendar_holiday_type);
-  return `<span class="mini-badge holiday-badge">${escapeHtml(label)}</span>`;
-}
-
 function render() {
   if (!state.user) return renderLogin();
   if (state.user.role === 'admin') return renderAdmin();
@@ -309,14 +278,14 @@ function openConfirmModal({ title, text, confirmText = 'אישור', cancelText 
 
 function renderLogin() {
   app.innerHTML = `
-    <div class="mobile-shell auth-shell">
+    <div class="mobile-shell">
       <div class="card hero-card center">
         <div class="badge">VClock 2026</div>
-        <h1 class="title title-on-light">מערכת שעון נוכחות</h1>
-        <p class="subtitle subtitle-on-light">כניסה עם שם עובד/מספר עובד וסיסמה</p>
+        <h1 class="title">מערכת שעון נוכחות</h1>
+        <p class="subtitle">כניסה עם שם עובד/מספר עובד וסיסמה</p>
         <div id="msgBox" class="hidden"></div>
 
-        <div class="grid auth-grid" style="text-align:right">
+        <div class="grid" style="text-align:right">
           <div>
             <label class="label">שם עובד או מספר עובד</label>
             <input class="input" id="loginEmployeeCode" />
@@ -328,7 +297,12 @@ function renderLogin() {
         </div>
 
         <div class="hero-login-actions">
-          <button class="btn btn-primary btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+                   <button class="btn btn-light btn-block" id="passwordLoginBtn">כניסה עם סיסמה</button>
+        </div>
+
+        <hr class="sep" />
+        <div class="small">
+        
         </div>
       </div>
     </div>
@@ -347,11 +321,40 @@ function renderLogin() {
 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
-      render();
+      
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
+
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+render();
     } catch (err) {
       showMessage('error', err.message);
     }
   };
+
 }
 
 function getCurrentMinutes() {
@@ -575,7 +578,6 @@ async function deleteHoliday(id) {
 
   try {
     await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    toast('success', 'החג נמחק');
     loadSettings();
   } catch (err) {
     alert(err.message);
@@ -583,55 +585,19 @@ async function deleteHoliday(id) {
 }
 
 async function setReportApproval(id, approval_status) {
-  closeModal();
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
 
-  const host = document.createElement('div');
-  host.id = 'globalModal';
-  host.className = 'modal-backdrop';
-  host.innerHTML = `
-    <div class="modal">
-      <h3 class="modal-title">עדכון סטטוס דיווח</h3>
-      <form id="reportApprovalForm" class="grid modal-form">
-        <div>
-          <label class="label">סטטוס</label>
-          <select class="select" name="approval_status">
-            <option value="pending" ${approval_status === 'pending' ? 'selected' : ''}>ממתין</option>
-            <option value="approved" ${approval_status === 'approved' ? 'selected' : ''}>אושר</option>
-            <option value="rejected" ${approval_status === 'rejected' ? 'selected' : ''}>נדחה</option>
-          </select>
-        </div>
-        <div>
-          <label class="label">הערת מנהל</label>
-          <textarea class="textarea" name="manager_note" placeholder="אפשר להשאיר ריק"></textarea>
-        </div>
-        <div class="row form-actions">
-          <button type="submit" class="btn btn-primary">שמור</button>
-          <button type="button" class="btn btn-light" id="cancelReportApprovalBtn">ביטול</button>
-        </div>
-      </form>
-    </div>
-  `;
-  document.body.appendChild(host);
-
-  document.getElementById('cancelReportApprovalBtn').onclick = closeModal;
-  document.getElementById('reportApprovalForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    try {
-      await api('/api/admin/reports/' + id + '/approval', {
-        method: 'PUT',
-        body: JSON.stringify({
-          approval_status: form.approval_status.value,
-          manager_note: form.manager_note.value
-        })
-      });
-      closeModal();
-      toast('success', 'סטטוס הדיווח עודכן');
-      loadReports();
-    } catch (err) {
-      alert(err.message);
-    }
-  };
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
 }
 
 render();
@@ -684,7 +650,6 @@ render();
         <div class="small">סבב שישי: ${status.schedule?.friday_rotation_start_allowed ? 'מתחיל בשישי עובד' : 'מתחיל בשישי לא עובד'}</div>
         <div class="small">עוגן סבב שישי: ${status.schedule?.friday_rotation_anchor_date || 'לא הוגדר'}</div>
         <div class="small">מצב שישי נוכחי: ${fridayRotationText}</div>
-        <div class="small">${status.validation?.holidayName ? `חג / מועד היום: ${holidayTypeLabel(status.validation?.holidayType)} - ${status.validation.holidayName}` : 'חג / מועד היום: אין'}</div>
       `;
     }
 
@@ -885,7 +850,7 @@ async function renderAdmin() {
         <div class="tab ${state.currentTab === 'settings' ? 'active' : ''}" data-tab="settings">הגדרות</div>
       </div>
 
-      <div id="tabContent" class="card admin-content-card">טוען...</div>
+      <div id="tabContent" class="card">טוען...</div>
     </div>
   `;
 
@@ -898,13 +863,45 @@ async function renderAdmin() {
 
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    render();
+    
+async function deleteHoliday(id) {
+  if (!confirm('למחוק את החג?')) return;
+
+  try {
+    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
+    loadSettings();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
+  try {
+    await api('/api/admin/reports/' + id + '/approval', {
+      method: 'PUT',
+      body: JSON.stringify({ approval_status, manager_note })
+    });
+    toast('success', 'סטטוס הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+render();
   };
 
   document.getElementById('shutdownBtn').onclick = async () => {
     if (!confirm('לסגור את שרת VClock?')) return;
+
     try {
-      await api('/api/admin/shutdown', { method: 'POST', body: JSON.stringify({}) });
+      await api('/api/admin/shutdown', {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
       alert('השרת נסגר');
     } catch (err) {
       alert(err.message);
@@ -1023,7 +1020,7 @@ async function loadReports() {
       </div>
     </div>
 
-    <div class="row toolbar-row" style="margin-top:12px">
+    <div class="row" style="margin-top:12px">
       <button class="btn btn-primary" id="searchBtn">חפש</button>
       <button class="btn btn-light" id="exportBtn">ייצוא לאקסל</button>
       <button class="btn btn-danger" id="deleteSelectedBtn">מחק מסומנים</button>
@@ -1032,9 +1029,9 @@ async function loadReports() {
 
     <div id="reportsTable" style="margin-top:14px">טוען...</div>
 
-    <div class="card soft-card" style="margin-top:16px">
+    <div class="card" style="margin-top:16px;background:#f8fafc">
       <h3 style="margin-top:0">לוג פעולות ודיווחים</h3>
-      <div class="row toolbar-row" style="margin-bottom:12px">
+      <div class="row" style="margin-bottom:12px">
         <button class="btn btn-light" id="reloadLogsBtn">רענן לוג</button>
       </div>
       <div id="actionLogsTable">טוען...</div>
@@ -1069,6 +1066,7 @@ async function loadReports() {
   async function doSearch() {
     try {
       state.selectedReportIds = [];
+
       const qs = new URLSearchParams({
         employeeCode: document.getElementById('filterEmployee').value || '',
         fromDate: document.getElementById('fromDate').value || '',
@@ -1088,7 +1086,6 @@ async function loadReports() {
                 <th>שם</th>
                 <th>סוג</th>
                 <th>סוג יום</th>
-                <th>חג / מועד</th>
                 <th>סטטוס</th>
                 <th>חריגה</th>
                 <th>הערת מנהל</th>
@@ -1100,47 +1097,48 @@ async function loadReports() {
             </thead>
             <tbody>
               ${rows.map(r => `
-                <tr class="${r.requires_admin_approval ? 'report-row-pending' : ''}">
-                  <td><input type="checkbox" class="report-row-checkbox" value="${r.id}" onchange="toggleReportSelection(${r.id}, this.checked)" /></td>
-                  <td>${r.employee_code}</td>
-                  <td>${r.full_name}</td>
-                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                  <td>
-                    <div>${r.work_day_type}</div>
-                    <div class="row-badges">${rowFlagBadges(r)}</div>
-                  </td>
-                  <td>
-                    <div class="row-badges">
-                      ${renderHolidayBadge(r)}
-                      ${r.calendar_holiday_type ? `<span class="mini-badge holiday-type-badge">${holidayTypeLabel(r.calendar_holiday_type)}</span>` : ''}
-                    </div>
-                  </td>
-                  <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
-                  <td>${r.exception_reason || ''}</td>
-                  <td>${r.manager_note || ''}</td>
-                  <td>${r.note || ''}</td>
-                  <td>
-                    ${r.location_status === 'no_permission'
-                      ? '<span class="danger-text">הרשאות מיקום סגורות</span>'
-                      : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
-                    }
-                  </td>
-                  <td>${fmtDateTime(r.record_time)}</td>
-                  <td>
-                    <div class="action-stack">
-                      <div class="row">
-                        <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\'")}', '${String(r.note || '').replace(/'/g, "\'")}', '${String(r.manager_note || '').replace(/'/g, "\'")}')">ערוך</button>
-                        <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
+                  <tr class="${r.requires_admin_approval ? 'report-row-pending' : ''}">
+                    <td>
+                      <input
+                        type="checkbox"
+                        class="report-row-checkbox"
+                        value="${r.id}"
+                        onchange="toggleReportSelection(${r.id}, this.checked)"
+                      />
+                    </td>
+                    <td>${r.employee_code}</td>
+                    <td>${r.full_name}</td>
+                    <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                    <td>
+                      <div>${r.work_day_type}</div>
+                      <div class="row-badges">${rowFlagBadges(r)}</div>
+                    </td>
+                    <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
+                    <td>${r.exception_reason || ''}</td>
+                    <td>${r.manager_note || ''}</td>
+                    <td>${r.note || ''}</td>
+                    <td>
+                      ${r.location_status === 'no_permission'
+                        ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+                        : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
+                      }
+                    </td>
+                    <td>${fmtDateTime(r.record_time)}</td>
+                    <td>
+                      <div class="action-stack">
+                        <div class="row">
+                          <button class="btn btn-light" onclick="editReport(${r.id}, '${String(r.work_day_type || '').replace(/'/g, "\\'")}', '${String(r.note || '').replace(/'/g, "\\'")}', '${String(r.manager_note || '').replace(/'/g, "\\'")}')">ערוך</button>
+                          <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
+                        </div>
+                        <div class="row">
+                          <button class="btn btn-ok" onclick="setReportApproval(${r.id}, 'approved')">אשר</button>
+                          <button class="btn btn-danger" onclick="setReportApproval(${r.id}, 'rejected')">דחה</button>
+                          <button class="btn btn-light" onclick="setReportApproval(${r.id}, 'pending')">החזר להמתנה</button>
+                        </div>
                       </div>
-                      <div class="row">
-                        <button class="btn btn-ok" onclick="setReportApproval(${r.id}, 'approved')">אשר</button>
-                        <button class="btn btn-danger" onclick="setReportApproval(${r.id}, 'rejected')">דחה</button>
-                        <button class="btn btn-light" onclick="setReportApproval(${r.id}, 'pending')">החזר להמתנה</button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              `).join('') || '<tr><td colspan="13">אין נתונים</td></tr>'}
+                    </td>
+                  </tr>
+                `).join('') || '<tr><td colspan="12">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1204,7 +1202,6 @@ async function loadReports() {
   await doSearch();
   await loadActionLogs();
 }
-
 
 async function loadMonthly() {
   const box = document.getElementById('tabContent');
@@ -1578,19 +1575,6 @@ async function loadUsers() {
 }
 
 
-async function syncHolidayYear(year, overwriteManual = false) {
-  try {
-    const result = await api('/api/admin/holidays/sync-year', {
-      method: 'POST',
-      body: JSON.stringify({ year, overwrite_manual: overwriteManual })
-    });
-    toast('success', `סונכרנו ${result.count || 0} חגים/מועדים לשנת ${year}`);
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
 async function loadSettings() {
   const box = document.getElementById('tabContent');
 
@@ -1602,102 +1586,100 @@ async function loadSettings() {
       api('/api/admin/holidays')
     ]);
 
-    const currentYear = new Date().getFullYear();
-
     box.innerHTML = `
       <h2 style="margin-top:0">הגדרות מערכת וקבוצות</h2>
       <div id="settingsMsg" class="hidden"></div>
 
-      <div class="card soft-card">
+      <div class="card" style="background:#f8fafc">
         <h3 style="margin-top:0">הגדרות כלליות</h3>
         <div class="grid">
-          <label class="checkbox-inline"><input type="checkbox" id="preventDouble" ${s.prevent_double_checkin ? 'checked' : ''} /><span>חסימת כניסה כפולה</span></label>
-          <label class="checkbox-inline"><input type="checkbox" id="preventCheckout" ${s.prevent_checkout_without_checkin ? 'checked' : ''} /><span>חסימת יציאה בלי כניסה</span></label>
-          <label class="checkbox-inline"><input type="checkbox" id="allowMultipleSessions" ${s.allow_multiple_sessions_per_day ? 'checked' : ''} /><span>אפשר מספר סשנים ביום</span></label>
+          <label><input type="checkbox" id="preventDouble" ${s.prevent_double_checkin ? 'checked' : ''} /> חסימת כניסה כפולה</label>
+          <label><input type="checkbox" id="preventCheckout" ${s.prevent_checkout_without_checkin ? 'checked' : ''} /> חסימת יציאה בלי כניסה</label>
+          <label><input type="checkbox" id="allowMultipleSessions" ${s.allow_multiple_sessions_per_day ? 'checked' : ''} /> אפשר מספר סשנים ביום</label>
+
           <div>
             <label class="label">רשימת סוגי יום עבודה (שורה לכל ערך)</label>
-            <textarea class="textarea" id="workDayTypesInput">${(s.work_day_types || []).join('
-')}</textarea>
+            <textarea class="textarea" id="workDayTypesInput">${(s.work_day_types || []).join('\n')}</textarea>
           </div>
-          <div><button class="btn btn-primary" id="saveSettingsBtn">שמור הגדרות</button></div>
+
+          <div>
+            <button class="btn btn-primary" id="saveSettingsBtn">שמור הגדרות</button>
+          </div>
         </div>
       </div>
 
-      <div class="card soft-card">
-        <div class="section-head">
-          <div>
-            <h3 style="margin:0">ניהול חגים ומועדים</h3>
-            <div class="section-subtext">חיבור חגים ישראליים לסטטוסים של המערכת</div>
-          </div>
-          <div class="row toolbar-row">
-            <button class="btn btn-light" id="syncCurrentYearBtn">סנכרן ${currentYear}</button>
-            <button class="btn btn-light" id="syncNextYearBtn">סנכרן ${currentYear + 1}</button>
-            <button class="btn btn-primary" id="syncOverwriteBtn">סנכרן ודרוס ידני</button>
-          </div>
-        </div>
-
+      <div class="card" style="background:#f8fafc">
+        <h3 style="margin-top:0">ניהול חגים</h3>
         <form id="addHolidayForm" class="grid grid-2">
-          <div><label class="label">תאריך חג</label><input class="input" type="date" name="holiday_date" required /></div>
-          <div><label class="label">שם חג</label><input class="input" name="holiday_name" required /></div>
           <div>
-            <label class="label">סוג חג</label>
-            <select class="select" name="holiday_type">
-              <option value="manual">ידני</option>
-              <option value="full_holiday">חג מלא</option>
-              <option value="erev_holiday">ערב חג</option>
-              <option value="chol_hamoed">חול המועד</option>
-              <option value="modern_holiday">מועד לאומי</option>
-              <option value="minor_holiday">מועד</option>
-            </select>
+            <label class="label">תאריך חג</label>
+            <input class="input" type="date" name="holiday_date" required />
           </div>
           <div>
-            <label class="label">ברירת מחדל לסוג יום</label>
-            <select class="select" name="default_work_day_type">
-              <option value="חג">חג</option>
-              <option value="ערב חג">ערב חג</option>
-              <option value="חול המועד">חול המועד</option>
-              <option value="יום רגיל">יום רגיל</option>
-            </select>
+            <label class="label">שם חג</label>
+            <input class="input" name="holiday_name" required />
           </div>
-          <div class="grid-span-2"><button class="btn btn-primary" type="submit">שמור חג</button></div>
+          <div class="row">
+            <button class="btn btn-primary" type="submit">שמור חג</button>
+          </div>
         </form>
-
         <div class="table-wrap" style="margin-top:16px">
           <table>
-            <thead><tr><th>תאריך</th><th>שם חג</th><th>סוג</th><th>היקף</th><th>ברירת מחדל</th><th>אישור מנהל</th><th>מקור</th><th>שנה</th><th>פעולה</th></tr></thead>
+            <thead>
+              <tr>
+                <th>תאריך</th>
+                <th>שם חג</th>
+                <th>פעולה</th>
+              </tr>
+            </thead>
             <tbody>
               ${holidays.map((holiday) => `
                 <tr>
                   <td>${holiday.holiday_date}</td>
                   <td>${escapeHtml(holiday.holiday_name)}</td>
-                  <td><span class="mini-badge holiday-type-badge">${escapeHtml(holidayTypeLabel(holiday.holiday_type))}</span></td>
-                  <td>${escapeHtml(holidayScopeLabel(holiday.holiday_scope))}</td>
-                  <td>${escapeHtml(holiday.default_work_day_type || '')}</td>
-                  <td>${holiday.requires_admin_approval ? '<span class="mini-badge status-pending">דורש אישור</span>' : '<span class="mini-badge status-approved">ללא אישור</span>'}</td>
-                  <td>${escapeHtml(holiday.source || '')}</td>
-                  <td>${escapeHtml(String(holiday.source_year || ''))}</td>
                   <td><button class="btn btn-danger" type="button" onclick="deleteHoliday(${holiday.id})">מחק</button></td>
                 </tr>
-              `).join('') || '<tr><td colspan="9">אין חגים מוגדרים</td></tr>'}
+              `).join('') || '<tr><td colspan="3">אין חגים מוגדרים</td></tr>'}
             </tbody>
           </table>
         </div>
       </div>
 
-      <div class="card soft-card">
+      <div class="card" style="background:#f8fafc">
         <h3 style="margin-top:0">ניהול קבוצות משתמשים</h3>
         <form id="addWorkGroupForm" class="grid">
           <div class="grid grid-2">
-            <div><label class="label">שם קבוצה</label><input class="input" name="name" required /></div>
-            <div><label class="label">תיאור</label><input class="input" name="description" /></div>
+            <div>
+              <label class="label">שם קבוצה</label>
+              <input class="input" name="name" required />
+            </div>
+            <div>
+              <label class="label">תיאור</label>
+              <input class="input" name="description" />
+            </div>
           </div>
-          <div><label class="label">ימי עבודה לקבוצה</label>${renderWeekdayCheckboxes('group_work_days')}</div>
-          <div><button class="btn btn-primary" type="submit">צור קבוצה</button></div>
+
+          <div>
+            <label class="label">ימי עבודה לקבוצה</label>
+            ${renderWeekdayCheckboxes('group_work_days')}
+          </div>
+
+          <div>
+            <button class="btn btn-primary" type="submit">צור קבוצה</button>
+          </div>
         </form>
 
         <div class="table-wrap" style="margin-top:16px">
           <table>
-            <thead><tr><th>שם קבוצה</th><th>תיאור</th><th>ימי עבודה</th><th>משתמשים</th><th>פעולות</th></tr></thead>
+            <thead>
+              <tr>
+                <th>שם קבוצה</th>
+                <th>תיאור</th>
+                <th>ימי עבודה</th>
+                <th>משתמשים</th>
+                <th>פעולות</th>
+              </tr>
+            </thead>
             <tbody>
               ${groups.map((group) => `
                 <tr>
@@ -1705,7 +1687,12 @@ async function loadSettings() {
                   <td>${escapeHtml(group.description || '')}</td>
                   <td>${escapeHtml(formatWeekDays(group.work_days || []))}</td>
                   <td>${group.users_count || 0}</td>
-                  <td><div class="row"><button class="btn btn-light" type="button" onclick="editWorkGroup(${group.id})">ערוך</button><button class="btn btn-danger" type="button" onclick="deleteWorkGroup(${group.id})">מחק</button></div></td>
+                  <td>
+                    <div class="row">
+                      <button class="btn btn-light" type="button" onclick="editWorkGroup(${group.id})">ערוך</button>
+                      <button class="btn btn-danger" type="button" onclick="deleteWorkGroup(${group.id})">מחק</button>
+                    </div>
+                  </td>
                 </tr>
               `).join('') || '<tr><td colspan="5">אין קבוצות</td></tr>'}
             </tbody>
@@ -1713,21 +1700,50 @@ async function loadSettings() {
         </div>
       </div>
 
-      <div class="card soft-card">
+      <div class="card" style="background:#f8fafc">
         <h3 style="margin-top:0">שיוך קבוצות וימי עבודה לעובדים</h3>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>קוד</th><th>שם</th><th>קבוצה</th><th>ימי עבודה אישיים</th><th>שישי לסירוגין</th><th>סיכום</th><th>פעולה</th></tr></thead>
+            <thead>
+              <tr>
+                <th>קוד</th>
+                <th>שם</th>
+                <th>קבוצה</th>
+                <th>ימי עבודה אישיים</th>
+                <th>שישי לסירוגין</th>
+                <th>סיכום</th>
+                <th>פעולה</th>
+              </tr>
+            </thead>
             <tbody>
               ${users.filter((user) => user.role === 'employee').map((user) => `
                 <tr class="schedule-row" data-user-id="${user.id}">
                   <td>${escapeHtml(user.employee_code)}</td>
                   <td>${escapeHtml(user.full_name)}</td>
-                  <td><select class="select schedule-group-select"><option value="">ללא קבוצה</option>${groups.map((group) => `<option value="${group.id}" ${String(user.work_group_id || '') === String(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}</select></td>
+                  <td>
+                    <select class="select schedule-group-select">
+                      <option value="">ללא קבוצה</option>
+                      ${groups.map((group) => `
+                        <option value="${group.id}" ${String(user.work_group_id || '') === String(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>
+                      `).join('')}
+                    </select>
+                  </td>
                   <td>${renderWeekdayCheckboxes('user_work_days_' + user.id, user.allowed_work_days || [], 'user_' + user.id)}</td>
-                  <td><div class="grid"><input class="input friday-anchor-input" type="date" value="${(user.friday_rotation_anchor_date || '').slice(0, 10)}" /><label class="checkbox-inline"><input type="checkbox" class="friday-start-allowed-input" ${user.friday_rotation_start_allowed ? 'checked' : ''} /><span>תאריך העוגן הוא שישי עבודה</span></label></div></td>
-                  <td><div class="small small-on-light"><strong>קבוצה:</strong> ${escapeHtml(user.work_group_name || 'ללא קבוצה')}</div><div class="small small-on-light"><strong>ימי קבוצה:</strong> ${escapeHtml(formatWeekDays(user.work_group_days || []))}</div><div class="small small-on-light"><strong>ימים אישיים:</strong> ${escapeHtml(formatWeekDays(user.allowed_work_days || []))}</div><div class="small small-on-light"><strong>שישי:</strong> ${user.friday_rotation_start_allowed ? 'מתחיל בעבודה' : 'מתחיל בלי עבודה'}</div></td>
-                  <td><button class="btn btn-primary save-user-schedule-btn" type="button">שמור</button></td>
+                  <td>
+                    <div class="grid">
+                      <input class="input friday-anchor-input" type="date" value="${(user.friday_rotation_anchor_date || '').slice(0, 10)}" />
+                      <label><input type="checkbox" class="friday-start-allowed-input" ${user.friday_rotation_start_allowed ? 'checked' : ''} /> תאריך העוגן הוא שישי עבודה</label>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="small"><strong>קבוצה:</strong> ${escapeHtml(user.work_group_name || 'ללא קבוצה')}</div>
+                    <div class="small"><strong>ימי קבוצה:</strong> ${escapeHtml(formatWeekDays(user.work_group_days || []))}</div>
+                    <div class="small"><strong>ימים אישיים:</strong> ${escapeHtml(formatWeekDays(user.allowed_work_days || []))}</div>
+                    <div class="small"><strong>שישי:</strong> ${user.friday_rotation_start_allowed ? 'מתחיל בעבודה' : 'מתחיל בלי עבודה'}</div>
+                  </td>
+                  <td>
+                    <button class="btn btn-primary save-user-schedule-btn" type="button">שמור</button>
+                  </td>
                 </tr>
               `).join('') || '<tr><td colspan="7">אין עובדים</td></tr>'}
             </tbody>
@@ -1736,14 +1752,15 @@ async function loadSettings() {
       </div>
     `;
 
-    document.getElementById('syncCurrentYearBtn').onclick = () => syncHolidayYear(currentYear, false);
-    document.getElementById('syncNextYearBtn').onclick = () => syncHolidayYear(currentYear + 1, false);
-    document.getElementById('syncOverwriteBtn').onclick = () => syncHolidayYear(currentYear, true);
-
     document.getElementById('saveSettingsBtn').onclick = async () => {
       try {
-        const workDayTypes = document.getElementById('workDayTypesInput').value.split('
-').map(v => v.trim()).filter(Boolean);
+        const workDayTypes = document
+          .getElementById('workDayTypesInput')
+          .value
+          .split('\n')
+          .map(v => v.trim())
+          .filter(Boolean);
+
         await api('/api/admin/settings', {
           method: 'PUT',
           body: JSON.stringify({
@@ -1753,6 +1770,7 @@ async function loadSettings() {
             work_day_types: workDayTypes
           })
         });
+
         const msg = document.getElementById('settingsMsg');
         msg.className = 'success';
         msg.textContent = 'ההגדרות נשמרו';
@@ -1770,14 +1788,9 @@ async function loadSettings() {
           method: 'POST',
           body: JSON.stringify({
             holiday_date: e.target.holiday_date.value,
-            holiday_name: e.target.holiday_name.value,
-            holiday_type: e.target.holiday_type.value,
-            holiday_scope: e.target.holiday_type.value === 'full_holiday' ? 'full' : 'partial',
-            requires_admin_approval: e.target.default_work_day_type.value === 'חג',
-            default_work_day_type: e.target.default_work_day_type.value
+            holiday_name: e.target.holiday_name.value
           })
         });
-        toast('success', 'החג נשמר');
         loadSettings();
       } catch (err) {
         const msg = document.getElementById('settingsMsg');
@@ -1841,7 +1854,6 @@ async function loadSettings() {
   }
 }
 
-
 async function editWorkGroup(id) {
   try {
     const groups = await api('/api/admin/work-groups');
@@ -1889,67 +1901,31 @@ async function deleteWorkGroup(id) {
   }
 }
 async function editReport(id, currentType, currentNote, currentManagerNote) {
-  closeModal();
+  const work_day_type = prompt('סוג יום עבודה:', currentType || '');
+  if (work_day_type === null) return;
 
-  const host = document.createElement('div');
-  host.id = 'globalModal';
-  host.className = 'modal-backdrop';
+  const note = prompt('הערה:', currentNote || '');
+  if (note === null) return;
 
-  host.innerHTML = `
-    <div class="modal modal-wide">
-      <h3 class="modal-title">עריכת דיווח</h3>
+  const manager_note = prompt('הערת מנהל:', currentManagerNote || '');
+  if (manager_note === null) return;
 
-      <form id="editReportForm" class="grid grid-2 modal-form">
-        <div>
-          <label class="label">סוג יום עבודה</label>
-          <input class="input" name="work_day_type" value="${escapeHtml(currentType || '')}" />
-        </div>
+  try {
+    await api('/api/admin/reports/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({
+        work_day_type,
+        note,
+        manager_note
+      })
+    });
 
-        <div>
-          <label class="label">הערת עובד</label>
-          <input class="input" name="note" value="${escapeHtml(currentNote || '')}" />
-        </div>
-
-        <div class="grid-span-2">
-          <label class="label">הערת מנהל</label>
-          <textarea class="textarea" name="manager_note">${escapeHtml(currentManagerNote || '')}</textarea>
-        </div>
-
-        <div class="grid-span-2 form-actions row">
-          <button type="submit" class="btn btn-primary">שמור</button>
-          <button type="button" class="btn btn-light" id="cancelEditReport">ביטול</button>
-        </div>
-      </form>
-    </div>
-  `;
-
-  document.body.appendChild(host);
-
-  document.getElementById('cancelEditReport').onclick = closeModal;
-
-  document.getElementById('editReportForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const form = e.target;
-
-    try {
-      await api('/api/admin/reports/' + id, {
-        method: 'PUT',
-        body: JSON.stringify({
-          work_day_type: form.work_day_type.value,
-          note: form.note.value,
-          manager_note: form.manager_note.value
-        })
-      });
-
-      closeModal();
-      toast('success', 'הדיווח עודכן');
-      loadReports();
-    } catch (err) {
-      alert(err.message);
-    }
-  };
+    alert('הדיווח עודכן');
+    loadReports();
+  } catch (err) {
+    alert(err.message);
+  }
 }
-
 
 async function deleteReport(id) {
   if (!confirm('האם למחוק את השורה?')) return;
