@@ -18,7 +18,7 @@ const APP_TIMEZONE = 'Asia/Jerusalem';
 const WEEK_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const REGULAR_DAY_TYPES = ['יום רגיל', 'עבודה מהבית'];
 const SPECIAL_AUTO_CLOSE_TYPES = ['מילואים', 'מחלה', 'מחלת משפחה'];
-const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'ערב חג', 'חול המועד', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחה', 'אחר'];
+const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחה', 'אחר'];
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -80,6 +80,18 @@ function getNowInIsrael() {
   };
 }
 
+function getWorkdayWindow() {
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(3, 0, 0, 0);
+  if (now.getHours() < 3) {
+    start.setDate(start.getDate() - 1);
+  }
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
 function getDateStringFromValue(value) {
   if (!value) return '';
 
@@ -95,24 +107,6 @@ function getDateStringFromValue(value) {
   );
 
   return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-
-function addDaysToDateString(dateString, daysToAdd) {
-  const [year, month, day] = dateString.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + daysToAdd));
-  const y = date.getUTCFullYear();
-  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(date.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function resolveHolidayRecommendedType(holidayName = '') {
-  const name = String(holidayName || '').trim();
-  if (!name) return '';
-  if (name.includes('ערב')) return 'ערב חג';
-  if (name.includes('חול המועד')) return 'חול המועד';
-  return 'חג';
 }
 
 function getWeekDayNameFromDateString(dateString) {
@@ -495,53 +489,7 @@ app.get('/api/my-status', authRequired, async (req, res) => {
 
     const settings = await getSettingsRow();
     const today = getNowInIsrael().dateString;
-    const tomorrow = addDaysToDateString(today, 1);
     const weekDayName = getWeekDayNameFromDateString(today);
-    const tomorrowWeekDayName = getWeekDayNameFromDateString(tomorrow);
-
-    const todayHolidayRes = await query(
-      `SELECT holiday_name
-       FROM holidays
-       WHERE holiday_date = $1::date
-         AND is_active = 1
-       LIMIT 1`,
-      [today]
-    );
-    const tomorrowHolidayRes = await query(
-      `SELECT holiday_name
-       FROM holidays
-       WHERE holiday_date = $1::date
-         AND is_active = 1
-       LIMIT 1`,
-      [tomorrow]
-    );
-
-    const todayHolidayName = todayHolidayRes.rows[0]?.holiday_name || '';
-    const tomorrowHolidayName = tomorrowHolidayRes.rows[0]?.holiday_name || '';
-
-    let todayRecommendedType = '';
-    if (todayHolidayName) {
-      todayRecommendedType = resolveHolidayRecommendedType(todayHolidayName);
-    } else if (weekDayName === 'שבת') {
-      todayRecommendedType = 'שבת';
-    } else if (weekDayName === 'שישי') {
-      todayRecommendedType = calculateFridayAllowed(user, today) ? 'שישי' : 'שישי בתשלום';
-    } else {
-      todayRecommendedType = 'יום רגיל';
-    }
-
-    let tomorrowRecommendedType = '';
-    if (tomorrowHolidayName) {
-      tomorrowRecommendedType = resolveHolidayRecommendedType(tomorrowHolidayName);
-    } else if (tomorrowWeekDayName === 'שישי') {
-      tomorrowRecommendedType = calculateFridayAllowed(user, tomorrow) ? 'שישי' : 'שישי בתשלום';
-    } else if (tomorrowWeekDayName === 'שבת') {
-      tomorrowRecommendedType = 'שבת';
-    } else {
-      tomorrowRecommendedType = 'יום רגיל';
-    }
-
-    const tomorrowSummary = `מחר: ${tomorrowRecommendedType}${tomorrowHolidayName ? ` (${tomorrowHolidayName})` : ''}`;
 
     res.json({
       user,
@@ -553,16 +501,6 @@ app.get('/api/my-status', authRequired, async (req, res) => {
         friday_rotation_anchor_date: user.friday_rotation_anchor_date,
         friday_rotation_start_allowed: Number(user.friday_rotation_start_allowed || 0),
         friday_allowed_today: weekDayName === 'שישי' ? calculateFridayAllowed(user, today) : null
-      },
-      calendar: {
-        today_date: today,
-        tomorrow_date: tomorrow,
-        weekday_name: weekDayName,
-        today_holiday_name: todayHolidayName,
-        tomorrow_holiday_name: tomorrowHolidayName,
-        today_recommended_type: todayRecommendedType,
-        tomorrow_recommended_type: tomorrowRecommendedType,
-        tomorrow_summary: tomorrowSummary
       },
       lastRecord: lastRes.rows[0] || null,
       workDayTypes: parseWorkDayTypes(settings.work_day_types),
@@ -581,13 +519,16 @@ app.get('/api/my-records', authRequired, async (req, res) => {
   try {
     await ensureAutoCloseSpecialRecords();
 
+    const { start, end } = getWorkdayWindow();
+
     const result = await query(
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-         AND DATE(record_time) = CURRENT_DATE
+         AND record_time >= $2
+         AND record_time < $3
        ORDER BY record_time DESC, id DESC`,
-      [req.user.id]
+      [req.user.id, start, end]
     );
 
     res.json(result.rows);
@@ -809,10 +750,14 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
     const totalRecords = await query(
       `SELECT COUNT(*)::int AS count FROM attendance_records`
     );
+    const { start, end } = getWorkdayWindow();
+
     const todayRecords = await query(
       `SELECT COUNT(*)::int AS count
        FROM attendance_records
-       WHERE DATE(record_time) = CURRENT_DATE`
+       WHERE record_time >= $1
+         AND record_time < $2`,
+      [start, end]
     );
     const pendingApprovals = await query(
       `SELECT COUNT(*)::int AS count
