@@ -658,80 +658,172 @@ a:hover {
 }
 
 
+.title-on-light {
+  color: var(--text-main) !important;
+}
 
-/* ===== Holiday + color upgrade ===== */
-.text-soft {
+.subtitle-on-light,
+.small-on-light {
   color: var(--text-soft) !important;
+}
+
+.auth-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.auth-grid {
+  max-width: 460px;
+  margin: 0 auto;
+}
+
+.hero-login-actions {
+  max-width: 460px;
+  margin: 14px auto 0;
+}
+
+.admin-content-card {
+  overflow: hidden;
+}
+
+.soft-card {
+  background: linear-gradient(180deg, #f7fbff 0%, #edf5fc 100%) !important;
+}
+
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.section-subtext {
+  color: var(--text-soft) !important;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.toolbar-row {
+  gap: 8px;
+}
+
+.checkbox-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.checkbox-inline input {
+  width: auto;
+}
+
+.modal-wide {
+  width: min(920px, 100%);
+}
+
+.modal-form .form-actions {
+  margin-top: 6px;
+}
+
+.grid-span-2 {
+  grid-column: 1 / -1;
 }
 
 .holiday-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  background: #e8ecff !important;
+  color: #3646b0 !important;
+}
+
+.holiday-type-badge {
+  background: #efe7ff !important;
+  color: #6e3db7 !important;
+}
+
+.danger-text {
+  color: #b91c1c !important;
   font-weight: 800;
-  line-height: 1.1;
-  margin-bottom: 4px;
 }
 
-.holiday-full {
-  background: #efe3ff;
-  color: #6b21a8 !important;
-}
-
-.holiday-erev {
-  background: #fff7d6;
-  color: #9a6700 !important;
-}
-
-.holiday-chol {
-  background: #dff7ff;
-  color: #0f5f7a !important;
-}
-
-.holiday-moed {
-  background: #ffe4ea;
-  color: #9f1239 !important;
-}
-
-.holiday-name {
-  color: var(--text-main) !important;
-  font-weight: 700;
-}
-
-.small-on-light,
-.schedule-box .small,
-.card .small {
+tbody tr td .small.small-on-light {
   color: var(--text-soft) !important;
 }
 
-thead th,
-th {
+@media (max-width: 760px) {
+  .section-head {
+    flex-direction: column;
+  }
+}
+
+
+/* ===== targeted fixes 2026-04-08 ===== */
+.title-on-light,
+.subtitle-on-light {
   color: var(--text-main) !important;
 }
-
-td {
-  color: var(--text-dark) !important;
+.hero-card {
+  max-width: 560px;
+  width: 100%;
 }
-
-.status-approved {
-  background: #dcfce7 !important;
+.hero-login-actions {
+  margin-top: 18px;
+}
+.hero-login-actions .btn {
+  min-height: 52px;
+}
+.auth-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+.auth-grid {
+  gap: 16px;
+}
+#msgBox.error {
+  background: #fff1f2 !important;
+  color: #b42318 !important;
+  border: 1px solid #fecdd3;
+}
+#msgBox.success {
+  background: #ecfdf3 !important;
   color: #166534 !important;
+  border: 1px solid #bbf7d0;
 }
-
-.status-pending {
-  background: #fff4d6 !important;
-  color: #9a6700 !important;
+#msgBox.warning {
+  background: #fffbeb !important;
+  color: #92400e !important;
+  border: 1px solid #fcd34d;
 }
-
-.status-rejected {
-  background: #fee2e2 !important;
-  color: #991b1b !important;
+.compact-schedule-box {
+  min-height: auto;
+  padding: 16px 18px;
 }
-
-.status-neutral {
-  background: #e2e8f0 !important;
-  color: #334155 !important;
+.next-day-summary {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-main);
+}
+.auto-day-type-hint {
+  margin-top: 8px;
+  color: var(--text-soft) !important;
+  font-weight: 700;
+}
+.holiday-table-wrap {
+  max-height: 430px;
+  overflow: auto;
+}
+.checkbox-inline {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 820px) {
+  .next-day-summary {
+    font-size: 16px;
+  }
 }

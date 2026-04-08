@@ -97,6 +97,24 @@ function getDateStringFromValue(value) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+
+function addDaysToDateString(dateString, daysToAdd) {
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + daysToAdd));
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function resolveHolidayRecommendedType(holidayName = '') {
+  const name = String(holidayName || '').trim();
+  if (!name) return '';
+  if (name.includes('ערב')) return 'ערב חג';
+  if (name.includes('חול המועד')) return 'חול המועד';
+  return 'חג';
+}
+
 function getWeekDayNameFromDateString(dateString) {
   const [year, month, day] = dateString.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -139,228 +157,6 @@ function shouldApplyRegularHours(workDayType) {
 
 function isSpecialAutoCloseType(workDayType) {
   return SPECIAL_AUTO_CLOSE_TYPES.includes(workDayType);
-}
-
-
-function getHolidayTypeLabel(holidayType) {
-  switch (holidayType) {
-    case 'full_holiday':
-      return 'חג';
-    case 'erev_holiday':
-      return 'ערב חג';
-    case 'chol_hamoed':
-      return 'חול המועד';
-    case 'modern_holiday':
-      return 'מועד ישראלי';
-    case 'minor_holiday':
-      return 'מועד';
-    default:
-      return 'מועד';
-  }
-}
-
-function inferHolidayMetaFromName(title = '', hebrew = '', subcat = '', yomtov = false) {
-  const text = `${title} ${hebrew}`.toLowerCase();
-  const heb = `${title} ${hebrew}`;
-
-  if (heb.includes('חול המועד') || text.includes('chol hamoed')) {
-    return {
-      holidayType: 'chol_hamoed',
-      holidayScope: 'partial',
-      blocksRegularWork: 0,
-      requiresAdminApproval: 0,
-      defaultWorkDayType: 'חול המועד'
-    };
-  }
-
-  if (heb.includes('ערב ') || text.startsWith('erev ') || text.includes(' erev ')) {
-    return {
-      holidayType: 'erev_holiday',
-      holidayScope: 'partial',
-      blocksRegularWork: 0,
-      requiresAdminApproval: 0,
-      defaultWorkDayType: 'ערב חג'
-    };
-  }
-
-  if (yomtov) {
-    return {
-      holidayType: 'full_holiday',
-      holidayScope: 'full',
-      blocksRegularWork: 1,
-      requiresAdminApproval: 1,
-      defaultWorkDayType: 'חג'
-    };
-  }
-
-  if (subcat === 'modern') {
-    return {
-      holidayType: 'modern_holiday',
-      holidayScope: 'informational',
-      blocksRegularWork: 0,
-      requiresAdminApproval: 0,
-      defaultWorkDayType: 'אחר'
-    };
-  }
-
-  if (subcat === 'major') {
-    return {
-      holidayType: 'full_holiday',
-      holidayScope: 'full',
-      blocksRegularWork: 1,
-      requiresAdminApproval: 1,
-      defaultWorkDayType: 'חג'
-    };
-  }
-
-  return {
-    holidayType: 'minor_holiday',
-    holidayScope: 'informational',
-    blocksRegularWork: 0,
-    requiresAdminApproval: 0,
-    defaultWorkDayType: 'אחר'
-  };
-}
-
-async function fetchIsraelHolidayCalendar(year) {
-  const url = `https://www.hebcal.com/hebcal?cfg=json&v=1&year=${year}&yt=G&month=x&i=on&maj=on&min=on&mod=on&mf=on&ss=on&lg=he`;
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'VClock/1.0'
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`Hebcal request failed with status ${response.status}`);
-  }
-
-  const data = await response.json();
-  const items = Array.isArray(data.items) ? data.items : [];
-
-  return items
-    .filter((item) => item && item.category === 'holiday' && item.date)
-    .map((item) => {
-      const meta = inferHolidayMetaFromName(item.title, item.hebrew, item.subcat, !!item.yomtov);
-
-      return {
-        holiday_date: item.date,
-        holiday_name: item.hebrew || item.title,
-        holiday_type: meta.holidayType,
-        holiday_scope: meta.holidayScope,
-        blocks_regular_work: meta.blocksRegularWork,
-        requires_admin_approval: meta.requiresAdminApproval,
-        default_work_day_type: meta.defaultWorkDayType,
-        source: 'hebcal',
-        source_year: year
-      };
-    });
-}
-
-async function syncIsraelHolidaysForYear(year, { overwriteManual = false } = {}) {
-  const holidays = await fetchIsraelHolidayCalendar(year);
-
-  for (const holiday of holidays) {
-    await query(
-      `INSERT INTO holidays (
-         holiday_date,
-         holiday_name,
-         holiday_type,
-         holiday_scope,
-         blocks_regular_work,
-         requires_admin_approval,
-         default_work_day_type,
-         source,
-         source_year,
-         is_active,
-         created_at
-       )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,NOW())
-       ON CONFLICT (holiday_date)
-       DO UPDATE SET
-         holiday_name = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.holiday_name
-           ELSE EXCLUDED.holiday_name
-         END,
-         holiday_type = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.holiday_type
-           ELSE EXCLUDED.holiday_type
-         END,
-         holiday_scope = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.holiday_scope
-           ELSE EXCLUDED.holiday_scope
-         END,
-         blocks_regular_work = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.blocks_regular_work
-           ELSE EXCLUDED.blocks_regular_work
-         END,
-         requires_admin_approval = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.requires_admin_approval
-           ELSE EXCLUDED.requires_admin_approval
-         END,
-         default_work_day_type = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.default_work_day_type
-           ELSE EXCLUDED.default_work_day_type
-         END,
-         source = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.source
-           ELSE EXCLUDED.source
-         END,
-         source_year = CASE
-           WHEN holidays.source = 'manual' AND $10 = false THEN holidays.source_year
-           ELSE EXCLUDED.source_year
-         END,
-         is_active = 1`,
-      [
-        holiday.holiday_date,
-        holiday.holiday_name,
-        holiday.holiday_type,
-        holiday.holiday_scope,
-        holiday.blocks_regular_work,
-        holiday.requires_admin_approval,
-        holiday.default_work_day_type,
-        holiday.source,
-        holiday.source_year,
-        overwriteManual
-      ]
-    );
-  }
-
-  return holidays.length;
-}
-
-async function ensureIsraelHolidayYears(years = []) {
-  const uniqueYears = [...new Set(years.filter(Boolean).map((value) => Number(value)))];
-  for (const year of uniqueYears) {
-    const existing = await query(
-      `SELECT COUNT(*)::int AS count
-       FROM holidays
-       WHERE source = 'hebcal'
-         AND source_year = $1`,
-      [year]
-    );
-
-    if (Number(existing.rows[0]?.count || 0) > 0) continue;
-
-    try {
-      await syncIsraelHolidaysForYear(year);
-      console.log(`Israel holidays synced for ${year}`);
-    } catch (err) {
-      console.error(`Failed to sync Israel holidays for ${year}:`, err.message);
-    }
-  }
-}
-
-async function getHolidayForDate(dateString) {
-  const result = await query(
-    `SELECT *
-     FROM holidays
-     WHERE holiday_date = $1::date
-       AND is_active = 1
-     LIMIT 1`,
-    [dateString]
-  );
-
-  return result.rows[0] || null;
 }
 
 function buildActionTitle(recordType, workDayType) {
@@ -519,7 +315,15 @@ async function validateAttendanceRequest({ user, recordType, workDayType }) {
   let exceptionReason = '';
 
   const settings = await getSettingsRow();
-  const holiday = await getHolidayForDate(dateString);
+  const holidays = await query(
+    `SELECT holiday_name
+     FROM holidays
+     WHERE holiday_date = $1::date
+       AND is_active = 1
+     LIMIT 1`,
+    [dateString]
+  );
+  const holiday = holidays.rows[0];
 
   const scheduleDays = user.allowed_work_days.length
     ? user.allowed_work_days
@@ -564,35 +368,15 @@ async function validateAttendanceRequest({ user, recordType, workDayType }) {
   }
 
   if (holiday && workDayType !== 'שישי בתשלום') {
-    const expectedWorkDayType = holiday.default_work_day_type || (holiday.blocks_regular_work ? 'חג' : 'יום רגיל');
-    const holidayLabel = getHolidayTypeLabel(holiday.holiday_type);
-    const selectedRegularLike = REGULAR_DAY_TYPES.includes(workDayType) || workDayType === 'יום רגיל';
-
-    if (holiday.blocks_regular_work) {
-      requiresAdminApproval = true;
-      approvalStatus = 'pending';
-      exceptionReason = `היום מוגדר כ${holidayLabel} (${holiday.holiday_name}) ולכן דורש אישור מנהל`;
-      messages.push(exceptionReason);
-
-      if (selectedRegularLike) {
-        messages.push(`מומלץ לרשום את היום תחת הסטטוס ${expectedWorkDayType}`);
-      }
-    } else if (workDayType === 'חג' && expectedWorkDayType !== 'חג') {
-      requiresAdminApproval = true;
-      approvalStatus = 'pending';
-      exceptionReason = `היום הוא ${holidayLabel} (${holiday.holiday_name}) ואינו מוגדר כחג מלא במערכת`;
-      messages.push(exceptionReason);
-    } else {
-      messages.push(`היום מזוהה כ${holidayLabel}: ${holiday.holiday_name}`);
-    }
+    requiresAdminApproval = true;
+    approvalStatus = 'pending';
+    exceptionReason = `עבודה ביום חג (${holiday.holiday_name}) מחייבת אישור מנהל`;
+    messages.push(exceptionReason);
   }
 
   return {
     settings,
     holidayName: holiday ? holiday.holiday_name : '',
-    holidayType: holiday ? holiday.holiday_type : '',
-    holidayScope: holiday ? holiday.holiday_scope : '',
-    holidayDefaultWorkDayType: holiday ? holiday.default_work_day_type : '',
     requiresAdminApproval,
     approvalStatus,
     exceptionReason,
@@ -711,7 +495,53 @@ app.get('/api/my-status', authRequired, async (req, res) => {
 
     const settings = await getSettingsRow();
     const today = getNowInIsrael().dateString;
+    const tomorrow = addDaysToDateString(today, 1);
     const weekDayName = getWeekDayNameFromDateString(today);
+    const tomorrowWeekDayName = getWeekDayNameFromDateString(tomorrow);
+
+    const todayHolidayRes = await query(
+      `SELECT holiday_name
+       FROM holidays
+       WHERE holiday_date = $1::date
+         AND is_active = 1
+       LIMIT 1`,
+      [today]
+    );
+    const tomorrowHolidayRes = await query(
+      `SELECT holiday_name
+       FROM holidays
+       WHERE holiday_date = $1::date
+         AND is_active = 1
+       LIMIT 1`,
+      [tomorrow]
+    );
+
+    const todayHolidayName = todayHolidayRes.rows[0]?.holiday_name || '';
+    const tomorrowHolidayName = tomorrowHolidayRes.rows[0]?.holiday_name || '';
+
+    let todayRecommendedType = '';
+    if (todayHolidayName) {
+      todayRecommendedType = resolveHolidayRecommendedType(todayHolidayName);
+    } else if (weekDayName === 'שבת') {
+      todayRecommendedType = 'שבת';
+    } else if (weekDayName === 'שישי') {
+      todayRecommendedType = calculateFridayAllowed(user, today) ? 'שישי' : 'שישי בתשלום';
+    } else {
+      todayRecommendedType = 'יום רגיל';
+    }
+
+    let tomorrowRecommendedType = '';
+    if (tomorrowHolidayName) {
+      tomorrowRecommendedType = resolveHolidayRecommendedType(tomorrowHolidayName);
+    } else if (tomorrowWeekDayName === 'שישי') {
+      tomorrowRecommendedType = calculateFridayAllowed(user, tomorrow) ? 'שישי' : 'שישי בתשלום';
+    } else if (tomorrowWeekDayName === 'שבת') {
+      tomorrowRecommendedType = 'שבת';
+    } else {
+      tomorrowRecommendedType = 'יום רגיל';
+    }
+
+    const tomorrowSummary = `מחר: ${tomorrowRecommendedType}${tomorrowHolidayName ? ` (${tomorrowHolidayName})` : ''}`;
 
     res.json({
       user,
@@ -723,6 +553,16 @@ app.get('/api/my-status', authRequired, async (req, res) => {
         friday_rotation_anchor_date: user.friday_rotation_anchor_date,
         friday_rotation_start_allowed: Number(user.friday_rotation_start_allowed || 0),
         friday_allowed_today: weekDayName === 'שישי' ? calculateFridayAllowed(user, today) : null
+      },
+      calendar: {
+        today_date: today,
+        tomorrow_date: tomorrow,
+        weekday_name: weekDayName,
+        today_holiday_name: todayHolidayName,
+        tomorrow_holiday_name: tomorrowHolidayName,
+        today_recommended_type: todayRecommendedType,
+        tomorrow_recommended_type: tomorrowRecommendedType,
+        tomorrow_summary: tomorrowSummary
       },
       lastRecord: lastRes.rows[0] || null,
       workDayTypes: parseWorkDayTypes(settings.work_day_types),
@@ -916,9 +756,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         '',
         0,
         'manual',
-        buildActionTitle(recordType, workDayType),
-        validation.holidayName || '',
-        validation.holidayType || ''
+        buildActionTitle(recordType, workDayType)
       ]
     );
 
@@ -1368,7 +1206,6 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
   try {
     const id = parseInt(req.params.id, 10);
     const {
-      employee_code,
       full_name,
       password,
       role,
@@ -1390,7 +1227,6 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
 
-    const nextEmployeeCode = typeof employee_code !== 'undefined' ? String(employee_code).trim() : user.employee_code;
     const nextName = typeof full_name !== 'undefined' ? String(full_name) : user.full_name;
     const nextRole = typeof role !== 'undefined' ? (role === 'admin' ? 'admin' : 'employee') : user.role;
     const nextActive = typeof is_active !== 'undefined' ? (is_active ? 1 : 0) : user.is_active;
@@ -1413,19 +1249,17 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
 
     await query(
       `UPDATE users
-       SET employee_code = $1,
-           full_name = $2,
-           password_hash = $3,
-           role = $4,
-           is_active = $5,
-           day_closed = $6,
-           work_group_id = $7,
-           allowed_work_days = $8,
-           friday_rotation_anchor_date = $9,
-           friday_rotation_start_allowed = $10
-       WHERE id = $11`,
+       SET full_name = $1,
+           password_hash = $2,
+           role = $3,
+           is_active = $4,
+           day_closed = $5,
+           work_group_id = $6,
+           allowed_work_days = $7,
+           friday_rotation_anchor_date = $8,
+           friday_rotation_start_allowed = $9
+       WHERE id = $10`,
       [
-        nextEmployeeCode,
         nextName,
         nextPasswordHash,
         nextRole,
@@ -1667,79 +1501,21 @@ app.get('/api/admin/holidays', authRequired, adminRequired, async (req, res) => 
   }
 });
 
-app.post('/api/admin/holidays/sync-year', authRequired, adminRequired, async (req, res) => {
-  try {
-    const year = parseInt(req.body.year, 10);
-    const overwriteManual = !!req.body.overwrite_manual;
-
-    if (!year || year < 2000 || year > 2100) {
-      return res.status(400).json({ error: 'יש להזין שנה תקינה' });
-    }
-
-    const count = await syncIsraelHolidaysForYear(year, { overwriteManual });
-
-    await logAction({
-      userId: null,
-      attendanceRecordId: null,
-      actionType: 'holiday_sync',
-      actionTitle: 'סנכרון חגים לישראל',
-      details: `סונכרנו ${count} חגים/מועדים עבור ${year}${overwriteManual ? ' (כולל דריסת ידני)' : ''}`,
-      createdByUserId: req.user.id
-    });
-
-    res.json({ success: true, count, year });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.post('/api/admin/holidays', authRequired, adminRequired, async (req, res) => {
   try {
     const holidayDate = String(req.body.holiday_date || '').trim();
     const holidayName = String(req.body.holiday_name || '').trim();
-    const holidayType = String(req.body.holiday_type || '').trim() || 'manual';
-    const holidayScope = String(req.body.holiday_scope || '').trim() || 'manual';
-    const defaultWorkDayType = String(req.body.default_work_day_type || '').trim() || 'חג';
 
     if (!holidayDate || !holidayName) {
       return res.status(400).json({ error: 'יש למלא תאריך ושם חג' });
     }
 
     await query(
-      `INSERT INTO holidays (
-         holiday_date,
-         holiday_name,
-         holiday_type,
-         holiday_scope,
-         blocks_regular_work,
-         requires_admin_approval,
-         default_work_day_type,
-         source,
-         source_year,
-         is_active,
-         created_at
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', EXTRACT(YEAR FROM $1::date)::int, 1, NOW())
+      `INSERT INTO holidays (holiday_date, holiday_name, is_active, created_at)
+       VALUES ($1, $2, 1, NOW())
        ON CONFLICT (holiday_date)
-       DO UPDATE SET
-         holiday_name = EXCLUDED.holiday_name,
-         holiday_type = EXCLUDED.holiday_type,
-         holiday_scope = EXCLUDED.holiday_scope,
-         blocks_regular_work = EXCLUDED.blocks_regular_work,
-         requires_admin_approval = EXCLUDED.requires_admin_approval,
-         default_work_day_type = EXCLUDED.default_work_day_type,
-         source = 'manual',
-         source_year = EXCLUDED.source_year,
-         is_active = 1`,
-      [
-        holidayDate,
-        holidayName,
-        holidayType,
-        holidayScope,
-        req.body.blocks_regular_work ? 1 : 0,
-        req.body.requires_admin_approval ? 1 : 0,
-        defaultWorkDayType
-      ]
+       DO UPDATE SET holiday_name = EXCLUDED.holiday_name, is_active = 1`,
+      [holidayDate, holidayName]
     );
 
     res.json({ success: true });
@@ -1822,8 +1598,6 @@ app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
          ar.exception_reason,
          ar.manager_note,
          ar.auto_closed,
-         ar.calendar_holiday_name,
-         ar.calendar_holiday_type,
          ar.record_time
        FROM attendance_records ar
        JOIN users u ON u.id = ar.user_id
@@ -1944,10 +1718,7 @@ app.get('*', (req, res) => {
 });
 
 initDb()
-  .then(async () => {
-    const now = getNowInIsrael();
-    await ensureIsraelHolidayYears([now.year, now.year + 1]);
-
+  .then(() => {
     app.listen(PORT, () => {
       console.log(`VClock PostgreSQL running on http://localhost:${PORT}`);
     });
