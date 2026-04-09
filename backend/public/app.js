@@ -9,11 +9,8 @@ const state = {
   employeeStatus: null,
   selectedReportIds: [],
   modal: null,
-  dashboardDailyFilters: {
-    date: '',
-    workGroupId: 'all'
-  },
-  dashboardWorkGroups: []
+  dashboardGroups: [],
+  dashboardFilters: {}
 };
 
 let dashboardChartRefs = {
@@ -67,46 +64,91 @@ function getDashboardLayout() {
 function saveDashboardLayout(layout) {
   localStorage.setItem('vclock_dashboard_layout', JSON.stringify(layout));
 }
+function getTodayInputValue() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+}
+
+function getDefaultWidgetFilter() {
+  return { date: getTodayInputValue(), groupId: '' };
+}
+
+function getWidgetFilter(widgetKey) {
+  if (!state.dashboardFilters[widgetKey]) {
+    state.dashboardFilters[widgetKey] = getDefaultWidgetFilter();
+  }
+  return state.dashboardFilters[widgetKey];
+}
+
+function getDashboardGroupName(groupId) {
+  if (!groupId) return 'כל הקטגוריות';
+  const match = (state.dashboardGroups || []).find((group) => String(group.id) === String(groupId));
+  return match?.name || 'קטגוריה נבחרת';
+}
+
+function renderDashboardFilterControls(widgetKey) {
+  const filter = getWidgetFilter(widgetKey);
+  const groupOptions = ['<option value="">כל הקטגוריות</option>']
+    .concat((state.dashboardGroups || []).map((group) => `
+      <option value="${group.id}" ${String(filter.groupId || '') === String(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>
+    `))
+    .join('');
+
+  return `
+    <div class="dashboard-filter-bar" data-dashboard-filter-bar="${widgetKey}">
+      <div>
+        <label class="label">יום</label>
+        <input class="input" type="date" data-dashboard-date="${widgetKey}" value="${filter.date || getTodayInputValue()}" />
+      </div>
+      <div>
+        <label class="label">קטגוריה</label>
+        <select class="select" data-dashboard-group="${widgetKey}">${groupOptions}</select>
+      </div>
+    </div>
+  `;
+}
+
+function buildDashboardStatsUrl(widgetKey) {
+  const filter = getWidgetFilter(widgetKey);
+  const params = new URLSearchParams();
+  if (filter.date) params.set('date', filter.date);
+  if (filter.groupId) params.set('groupId', filter.groupId);
+  return '/api/admin/dashboard-stats?' + params.toString();
+}
+
+async function refreshSingleDashboardWidget(widgetKey) {
+  const widget = DASHBOARD_WIDGETS[widgetKey];
+  if (!widget) return;
+  const data = await api(buildDashboardStatsUrl(widgetKey));
+  if (widgetKey === 'daily') renderDailyChart(data.daily, data.meta);
+  if (widgetKey === 'inOut') renderInOutChart(data.inOut, data.meta);
+  if (widgetKey === 'absence') renderAbsenceChart(data.absences, data.meta);
+  if (widgetKey === 'heatmap') renderHeatmap(data.heatmap, data.meta);
+}
+
+function bindDashboardWidgetFilterEvents(scope = document) {
+  scope.querySelectorAll('[data-dashboard-date]').forEach((input) => {
+    input.onchange = async (event) => {
+      const widgetKey = event.target.getAttribute('data-dashboard-date');
+      getWidgetFilter(widgetKey).date = event.target.value || getTodayInputValue();
+      await refreshSingleDashboardWidget(widgetKey);
+    };
+  });
+
+  scope.querySelectorAll('[data-dashboard-group]').forEach((select) => {
+    select.onchange = async (event) => {
+      const widgetKey = event.target.getAttribute('data-dashboard-group');
+      getWidgetFilter(widgetKey).groupId = event.target.value || '';
+      await refreshSingleDashboardWidget(widgetKey);
+    };
+  });
+}
+
 
 function formatDashboardDateLabel(value) {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return new Intl.DateTimeFormat('he-IL', { day: '2-digit', month: '2-digit' }).format(date);
-}
-
-function getTodayDateInputValue() {
-  const now = new Date();
-  const tzOffsetMs = now.getTimezoneOffset() * 60000;
-  return new Date(now.getTime() - tzOffsetMs).toISOString().slice(0, 10);
-}
-
-function getDashboardDailyFilters() {
-  return {
-    date: state.dashboardDailyFilters.date || getTodayDateInputValue(),
-    workGroupId: state.dashboardDailyFilters.workGroupId || 'all'
-  };
-}
-
-function buildDailyChartControls() {
-  const filters = getDashboardDailyFilters();
-  const groups = Array.isArray(state.dashboardWorkGroups) ? state.dashboardWorkGroups : [];
-
-  return `
-    <div class="dashboard-daily-controls">
-      <label>
-        <span>יום</span>
-        <input class="input input-sm" type="date" id="dashboardDailyDate" value="${filters.date}" />
-      </label>
-      <label>
-        <span>קטגוריה</span>
-        <select class="input input-sm" id="dashboardDailyGroup">
-          <option value="all" ${filters.workGroupId === 'all' ? 'selected' : ''}>כל הקטגוריות</option>
-          ${groups.map((group) => `<option value="${group.id}" ${String(filters.workGroupId) === String(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}
-        </select>
-      </label>
-    </div>
-  `;
 }
 
 function renderDashboardWidgets(layout) {
@@ -122,6 +164,8 @@ function renderDashboardWidgets(layout) {
             <div class="dashboard-widget-head">
               <h3>${widget.title}</h3>
             </div>
+            ${renderDashboardFilterControls(widget.key)}
+            <div class="dashboard-chart-summary" id="summary-${widget.key}"></div>
             <div class="heatmap-wrap">
               <div id="${widget.containerId}" class="dashboard-heatmap"></div>
             </div>
@@ -131,13 +175,11 @@ function renderDashboardWidgets(layout) {
 
       return `
         <div class="card dashboard-widget-card dashboard-chart-card" data-widget-key="${widget.key}">
-          <div class="dashboard-widget-head dashboard-widget-head-wrap">
-            <div>
-              <h3>${widget.title}</h3>
-            </div>
-            ${widget.key === 'daily' ? buildDailyChartControls() : ''}
+          <div class="dashboard-widget-head">
+            <h3>${widget.title}</h3>
           </div>
-          ${widget.key === 'daily' ? '<div id="dailyChartSummary" class="dashboard-daily-summary"></div>' : ''}
+          ${renderDashboardFilterControls(widget.key)}
+          <div class="dashboard-chart-summary" id="summary-${widget.key}"></div>
           <div class="chart-box"><canvas id="${widget.canvasId}"></canvas></div>
         </div>
       `;
@@ -204,6 +246,7 @@ async function refreshDashboardWidgetsOnly() {
   if (!widgetsHost) return;
   const layout = getDashboardLayout();
   widgetsHost.innerHTML = renderDashboardWidgets(layout);
+  bindDashboardWidgetFilterEvents(widgetsHost);
   await renderDashboardCharts();
 }
 
@@ -275,109 +318,55 @@ function getCheckedWeekDays(scope) {
   });
 }
 
-function bindDailyChartControls() {
-  const dateInput = document.getElementById('dashboardDailyDate');
-  const groupSelect = document.getElementById('dashboardDailyGroup');
-
-  if (dateInput) {
-    dateInput.onchange = async (event) => {
-      state.dashboardDailyFilters.date = event.target.value || getTodayDateInputValue();
-      await renderDashboardCharts();
-    };
-  }
-
-  if (groupSelect) {
-    groupSelect.onchange = async (event) => {
-      state.dashboardDailyFilters.workGroupId = event.target.value || 'all';
-      await renderDashboardCharts();
-    };
-  }
-}
-
 async function renderDashboardCharts() {
   ensureUiOverrides();
-  const filters = getDashboardDailyFilters();
-  state.dashboardDailyFilters = { ...filters };
-  const query = new URLSearchParams();
-  query.set('date', filters.date);
-  query.set('workGroupId', filters.workGroupId);
-  const data = await api('/api/admin/dashboard-stats?' + query.toString());
-  state.dashboardWorkGroups = Array.isArray(data.workGroups) ? data.workGroups : [];
-
   const layout = getDashboardLayout().filter((item) => item.visible).map((item) => item.key);
 
-  if (layout.includes('daily')) {
-    renderDailyChart(data.dailySummary);
-    bindDailyChartControls();
-  }
-  if (layout.includes('inOut')) renderInOutChart(data.inOut);
-  if (layout.includes('absence')) renderAbsenceChart(data.absences);
-  if (layout.includes('heatmap')) renderHeatmap(data.heatmap);
+  await Promise.all(layout.map((widgetKey) => refreshSingleDashboardWidget(widgetKey)));
+  bindDashboardWidgetFilterEvents(document.getElementById('dashboardWidgets') || document);
 }
-function renderDailyChart(data) {
+
+function setDashboardSummary(widgetKey, html) {
+  const el = document.getElementById('summary-' + widgetKey);
+  if (el) el.innerHTML = html || '';
+}
+
+function renderDailyChart(data, meta = {}) {
   const ctx = document.getElementById('chartDaily');
   if (!ctx) return;
-
-  const summaryHost = document.getElementById('dailyChartSummary');
-  const summary = data || {};
-  const totalEmployees = Number(summary.totalEmployees || 0);
-  const reportedCount = Number(summary.reportedCount || 0);
-  const missingCount = Math.max(totalEmployees - reportedCount, 0);
-  const reportPercent = totalEmployees > 0 ? Math.round((reportedCount / totalEmployees) * 100) : 0;
-  const categoryLabel = summary.workGroupName || 'כל הקטגוריות';
-  const dateLabel = summary.date ? new Intl.DateTimeFormat('he-IL', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(summary.date)) : '';
-
-  if (summaryHost) {
-    summaryHost.innerHTML = `
-      <div class="dashboard-summary-pill"><strong>קטגוריה:</strong> ${escapeHtml(categoryLabel)}</div>
-      <div class="dashboard-summary-pill"><strong>תאריך:</strong> ${escapeHtml(dateLabel)}</div>
-      <div class="dashboard-summary-pill"><strong>דיווחו כניסה:</strong> ${reportedCount}</div>
-      <div class="dashboard-summary-pill"><strong>לא דיווחו:</strong> ${missingCount}</div>
-      <div class="dashboard-summary-pill"><strong>אחוז דיווח:</strong> ${reportPercent}%</div>
-    `;
-  }
 
   if (dashboardChartRefs.daily) {
     dashboardChartRefs.daily.destroy();
   }
+
+  setDashboardSummary('daily', `
+    <div><strong>תאריך:</strong> ${meta.selectedDate || ''}</div>
+    <div><strong>קטגוריה:</strong> ${escapeHtml(meta.groupName || 'כל הקטגוריות')}</div>
+    <div><strong>דיווחו:</strong> ${data.reported || 0} / ${data.totalEmployees || 0}</div>
+    <div><strong>לא דיווחו:</strong> ${data.notReported || 0}</div>
+  `);
 
   dashboardChartRefs.daily = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: ['דיווחו כניסה', 'לא דיווחו'],
       datasets: [{
-        label: `${categoryLabel} • ${dateLabel}`,
-        data: [reportedCount, missingCount],
-        backgroundColor: ['#2563eb', '#cbd5e1'],
-        borderRadius: 10,
-        maxBarThickness: 70
+        label: 'עובדים בקטגוריה',
+        data: [data.reported || 0, data.notReported || 0],
+        backgroundColor: ['#2563eb', '#cbd5e1']
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: {
-            precision: 0
-          }
-        }
-      },
       plugins: {
-        legend: {
-          position: 'bottom'
-        },
-        tooltip: {
-          callbacks: {
-            label: (context) => `${context.label}: ${context.raw}`
-          }
-        }
+        legend: { position: 'bottom' }
       }
     }
   });
 }
-function renderInOutChart(data) {
+
+function renderInOutChart(data, meta = {}) {
   const ctx = document.getElementById('chartInOut');
   if (!ctx) return;
 
@@ -385,20 +374,22 @@ function renderInOutChart(data) {
     dashboardChartRefs.inOut.destroy();
   }
 
+  setDashboardSummary('inOut', `
+    <div><strong>תאריך:</strong> ${meta.selectedDate || ''}</div>
+    <div><strong>קטגוריה:</strong> ${escapeHtml(meta.groupName || 'כל הקטגוריות')}</div>
+    <div><strong>כניסות:</strong> ${data.ins || 0}</div>
+    <div><strong>יציאות:</strong> ${data.outs || 0}</div>
+  `);
+
   dashboardChartRefs.inOut = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: data.map(d => formatDashboardDateLabel(d.day)),
+      labels: ['כניסות', 'יציאות'],
       datasets: [
         {
-          label: 'כניסות',
-          data: data.map(d => d.ins),
-          backgroundColor: '#16a34a'
-        },
-        {
-          label: 'יציאות',
-          data: data.map(d => d.outs),
-          backgroundColor: '#2563eb'
+          label: 'כמות דיווחים',
+          data: [data.ins || 0, data.outs || 0],
+          backgroundColor: ['#16a34a', '#2563eb']
         }
       ]
     },
@@ -406,14 +397,13 @@ function renderInOutChart(data) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: 'bottom'
-        }
+        legend: { position: 'bottom' }
       }
     }
   });
 }
-function renderAbsenceChart(data) {
+
+function renderAbsenceChart(data, meta = {}) {
   const ctx = document.getElementById('chartAbsence');
   if (!ctx) return;
 
@@ -421,42 +411,62 @@ function renderAbsenceChart(data) {
     dashboardChartRefs.absence.destroy();
   }
 
+  const labels = (data || []).map((d) => d.full_name || '');
+  const values = (data || []).map((d) => Number(d.absences || 0));
+
+  setDashboardSummary('absence', `
+    <div><strong>תאריך:</strong> ${meta.selectedDate || ''}</div>
+    <div><strong>קטגוריה:</strong> ${escapeHtml(meta.groupName || 'כל הקטגוריות')}</div>
+    <div><strong>ללא דיווח כניסה:</strong> ${meta.absenceCount || 0}</div>
+  `);
+
   dashboardChartRefs.absence = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: data.map(d => d.full_name || ''),
+      labels: labels.length ? labels : ['אין חיסורים'],
       datasets: [{
-        label: 'ימי חיסור',
-        data: data.map(d => d.absences),
+        label: 'חיסור ביום הנבחר',
+        data: values.length ? values : [0],
         backgroundColor: '#475569'
       }]
     },
     options: {
+      indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: {
-          position: 'bottom'
-        }
+        legend: { position: 'bottom' }
       }
     }
   });
 }
-function renderHeatmap(data) {
+
+function renderHeatmap(data, meta = {}) {
   const container = document.getElementById('heatmap');
   if (!container) return;
 
+  setDashboardSummary('heatmap', `
+    <div><strong>קטגוריה:</strong> ${escapeHtml(meta.groupName || 'כל הקטגוריות')}</div>
+    <div><strong>יום מודגש:</strong> ${meta.selectedDate || ''}</div>
+    <div><strong>תצוגה:</strong> 30 הימים האחרונים</div>
+  `);
+
   container.innerHTML = '';
 
-  data.forEach((d) => {
+  (data || []).forEach((d) => {
     const div = document.createElement('div');
     div.className = 'heatmap-cell';
     const intensity = Math.min(Number(d.value || 0) / 6, 1);
     div.style.background = `rgba(37, 99, 235, ${Math.max(intensity, 0.12)})`;
+    if (meta.selectedDate && String(d.day).slice(0, 10) === String(meta.selectedDate).slice(0, 10)) {
+      div.style.outline = '2px solid #0f172a';
+      div.style.outlineOffset = '1px';
+    }
     div.title = `${formatDashboardDateLabel(d.day)} - ${d.value || 0} כניסות`;
     container.appendChild(div);
   });
 }
+
 function saveAuth(token, user) {
   state.token = token;
   state.user = user;
@@ -805,12 +815,7 @@ async function renderEmployee() {
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="topbar">
-        <div class="row employee-export-tools">
-          <select class="select employee-export-select" id="exportPeriod">
-            <option value="day">דוח יומי</option>
-            <option value="week">דוח שבועי</option>
-            <option value="month">דוח חודשי</option>
-          </select>
+        <div class="row">
           <button class="btn btn-light" id="exportMyRecordsBtn" style="padding:8px 12px">אקסל</button>
         </div>
 
@@ -873,8 +878,7 @@ async function renderEmployee() {
   `;
   document.getElementById('exportMyRecordsBtn').onclick = async () => {
     try {
-      const selectedPeriod = document.getElementById('exportPeriod')?.value || 'day';
-      const url = window.location.origin + '/api/my-records-export?period=' + encodeURIComponent(selectedPeriod);
+      const url = window.location.origin + '/api/my-records-export';
 
       const res = await fetch(url, {
         method: 'GET',
@@ -883,6 +887,7 @@ async function renderEmployee() {
         }
       });
 
+      // 🔴 בדיקה אם קיבלנו HTML בטעות
       const contentType = res.headers.get('content-type') || '';
 
       if (!res.ok || contentType.includes('text/html')) {
@@ -896,7 +901,7 @@ async function renderEmployee() {
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = 'VClock_My_Records_' + selectedPeriod + '.xlsx';
+      a.download = 'VClock_My_Records.xlsx';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1254,7 +1259,12 @@ render();
 async function loadDashboard() {
   const box = document.getElementById('tabContent');
   try {
-    const d = await api('/api/admin/dashboard');
+    const [d, groups] = await Promise.all([
+      api('/api/admin/dashboard'),
+      api('/api/admin/work-groups')
+    ]);
+    state.dashboardGroups = Array.isArray(groups) ? groups : [];
+    Object.keys(DASHBOARD_WIDGETS).forEach((key) => getWidgetFilter(key));
     const layout = getDashboardLayout();
 
     box.innerHTML = `
@@ -1263,7 +1273,7 @@ async function loadDashboard() {
         <div class="kpi"><div>סה"כ עובדים</div><div class="num">${d.totalUsers}</div></div>
         <div class="kpi"><div>עובדים פעילים</div><div class="num">${d.activeUsers}</div></div>
         <div class="kpi"><div>סה"כ דיווחים</div><div class="num">${d.totalRecords}</div></div>
-        <div class="kpi"><div>דיווחי היום</div><div class="num">${d.todayRecords}</div></div>
+        <div class="kpi"><div>דיווחים בחודש נוכחי</div><div class="num">${d.currentMonthRecords}</div></div>
       </div>
 
       <div class="card" style="margin-top:16px;background:#f8fafc">
