@@ -105,6 +105,58 @@ function formatSqlDateTimeLocal(date) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
+function padNumber(value) {
+  return String(value).padStart(2, '0');
+}
+
+function buildSqlDateTime(year, month, day, hour = 0, minute = 0, second = 0) {
+  return `${year}-${padNumber(month)}-${padNumber(day)} ${padNumber(hour)}:${padNumber(minute)}:${padNumber(second)}`;
+}
+
+function getMyRecordsExportWindow(period = 'day') {
+  const now = getNowInIsrael();
+  const selectedPeriod = ['day', 'week', 'month'].includes(period) ? period : 'day';
+
+  if (selectedPeriod === 'day') {
+    const start = buildSqlDateTime(now.year, now.month, now.day, 0, 0, 0);
+    const endDate = new Date(Date.UTC(now.year, now.month - 1, now.day));
+    endDate.setUTCDate(endDate.getUTCDate() + 1);
+    const end = buildSqlDateTime(endDate.getUTCFullYear(), endDate.getUTCMonth() + 1, endDate.getUTCDate(), 0, 0, 0);
+    return {
+      period: selectedPeriod,
+      label: 'יומי',
+      start,
+      end
+    };
+  }
+
+  if (selectedPeriod === 'week') {
+    const currentDate = new Date(Date.UTC(now.year, now.month - 1, now.day));
+    const dayOfWeek = currentDate.getUTCDay();
+    currentDate.setUTCDate(currentDate.getUTCDate() - dayOfWeek);
+
+    const endDate = new Date(currentDate);
+    endDate.setUTCDate(endDate.getUTCDate() + 7);
+
+    return {
+      period: selectedPeriod,
+      label: 'שבועי',
+      start: buildSqlDateTime(currentDate.getUTCFullYear(), currentDate.getUTCMonth() + 1, currentDate.getUTCDate(), 0, 0, 0),
+      end: buildSqlDateTime(endDate.getUTCFullYear(), endDate.getUTCMonth() + 1, endDate.getUTCDate(), 0, 0, 0)
+    };
+  }
+
+  const startDate = new Date(Date.UTC(now.year, now.month - 1, 1));
+  const endDate = new Date(Date.UTC(now.year, now.month, 1));
+
+  return {
+    period: selectedPeriod,
+    label: 'חודשי',
+    start: buildSqlDateTime(startDate.getUTCFullYear(), startDate.getUTCMonth() + 1, 1, 0, 0, 0),
+    end: buildSqlDateTime(endDate.getUTCFullYear(), endDate.getUTCMonth() + 1, 1, 0, 0, 0)
+  };
+}
+
 function getDateStringFromValue(value) {
   if (!value) return '';
 
@@ -554,37 +606,46 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
   try {
     await ensureAutoCloseSpecialRecords();
 
+    const exportWindow = getMyRecordsExportWindow(String(req.query.period || 'day'));
+
     const result = await query(
       `SELECT
          record_type,
          work_day_type,
          note,
-         approval_status,
-         requires_admin_approval,
-         exception_reason,
-         auto_closed,
          record_time
        FROM attendance_records
        WHERE user_id = $1
+         AND record_time >= $2::timestamp
+         AND record_time < $3::timestamp
        ORDER BY record_time DESC`,
-      [req.user.id]
+      [req.user.id, exportWindow.start, exportWindow.end]
     );
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('My Attendance');
 
     ws.columns = [
-      { header: 'Record Type', key: 'record_type', width: 14 },
-      { header: 'Work Day Type', key: 'work_day_type', width: 18 },
-      { header: 'Note', key: 'note', width: 30 },
-      { header: 'Approval Status', key: 'approval_status', width: 18 },
-      { header: 'Requires Admin Approval', key: 'requires_admin_approval', width: 20 },
-      { header: 'Exception Reason', key: 'exception_reason', width: 35 },
-      { header: 'Auto Closed', key: 'auto_closed', width: 12 },
-      { header: 'Record Time', key: 'record_time', width: 25 }
+      { header: 'תאריך', key: 'record_date', width: 16 },
+      { header: 'שעה', key: 'record_time_only', width: 14 },
+      { header: 'סוג דיווח', key: 'record_type_label', width: 16 },
+      { header: 'סוג יום', key: 'work_day_type', width: 18 },
+      { header: 'הערה', key: 'note', width: 34 }
     ];
 
-    result.rows.forEach((r) => ws.addRow(r));
+    result.rows.forEach((row) => {
+      const recordDate = new Date(row.record_time);
+      ws.addRow({
+        record_date: recordDate.toLocaleDateString('he-IL'),
+        record_time_only: recordDate.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        record_type_label: row.record_type === 'in' ? 'כניסה' : 'יציאה',
+        work_day_type: row.work_day_type || '-',
+        note: row.note || '-'
+      });
+    });
+
+    ws.views = [{ rightToLeft: true }];
+    ws.getRow(1).font = { bold: true };
 
     res.setHeader(
       'Content-Type',
@@ -592,7 +653,7 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename=VClock_My_Records_${req.user.employee_code}.xlsx`
+      `attachment; filename=VClock_My_Records_${exportWindow.period}_${req.user.employee_code}.xlsx`
     );
 
     await wb.xlsx.write(res);
@@ -1609,19 +1670,6 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureAutoCloseSpecialRecords();
 
-    const requestedDate = String(req.query.date || '').trim();
-    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : formatSqlDate(new Date());
-    const requestedWorkGroupId = String(req.query.workGroupId || 'all').trim();
-    const useSpecificGroup = requestedWorkGroupId && requestedWorkGroupId !== 'all';
-    const workGroupId = useSpecificGroup ? Number(requestedWorkGroupId) : null;
-
-    const workGroups = await query(`
-      SELECT id, name
-      FROM work_groups
-      WHERE is_active = 1
-      ORDER BY name ASC
-    `);
-
     const daily = await query(`
       SELECT DATE(record_time) as day,
              COUNT(DISTINCT user_id) as count
@@ -1671,44 +1719,11 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
       GROUP BY day
     `);
 
-    const dailySummary = await query(`
-      WITH filtered_users AS (
-        SELECT u.id
-        FROM users u
-        WHERE u.role = 'employee'
-          AND u.is_active = 1
-          AND ($2::int IS NULL OR u.work_group_id = $2::int)
-      ),
-      reported AS (
-        SELECT COUNT(DISTINCT ar.user_id)::int AS reported_count
-        FROM attendance_records ar
-        INNER JOIN filtered_users fu ON fu.id = ar.user_id
-        WHERE ar.record_type = 'in'
-          AND DATE(ar.record_time) = $1::date
-      )
-      SELECT
-        (SELECT COUNT(*)::int FROM filtered_users) AS total_employees,
-        COALESCE((SELECT reported_count FROM reported), 0) AS reported_count,
-        $1::date AS selected_date,
-        CASE
-          WHEN $2::int IS NULL THEN 'כל הקטגוריות'
-          ELSE COALESCE((SELECT name FROM work_groups WHERE id = $2::int), 'קטגוריה לא ידועה')
-        END AS work_group_name
-    `, [selectedDate, Number.isInteger(workGroupId) ? workGroupId : null]);
-
     res.json({
       daily: daily.rows,
-      dailySummary: {
-        date: selectedDate,
-        workGroupId: Number.isInteger(workGroupId) ? workGroupId : 'all',
-        workGroupName: dailySummary.rows[0]?.work_group_name || 'כל הקטגוריות',
-        totalEmployees: dailySummary.rows[0]?.total_employees || 0,
-        reportedCount: dailySummary.rows[0]?.reported_count || 0
-      },
       inOut: inOut.rows,
       absences: absences.rows,
-      heatmap: heatmap.rows,
-      workGroups: workGroups.rows
+      heatmap: heatmap.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

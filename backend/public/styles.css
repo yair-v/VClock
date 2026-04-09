@@ -1060,45 +1060,31 @@ button:disabled,
 }
 
 
-.dashboard-widget-head-wrap {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+.employee-export-tools {
+  gap: 8px;
+  align-items: center;
 }
 
-.dashboard-daily-controls {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: end;
+.employee-export-select {
+  min-width: 130px;
+  width: 130px;
+  padding: 10px 12px;
+  border-radius: 14px;
 }
 
-.dashboard-daily-controls label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 170px;
-}
+@media (max-width: 640px) {
+  .employee-export-tools {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
 
-.input-sm {
-  min-height: 40px;
-  padding: 8px 12px;
-}
+  .employee-export-tools .btn {
+    white-space: nowrap;
+  }
 
-.dashboard-daily-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin: 8px 0 14px;
-}
-
-.dashboard-summary-pill {
-  background: #eff6ff;
-  color: #1e293b;
-  border: 1px solid #bfdbfe;
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 14px;
+  .employee-export-select {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
 }

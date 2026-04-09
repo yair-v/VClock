@@ -8,11 +8,7 @@ const state = {
   currentTab: 'dashboard',
   employeeStatus: null,
   selectedReportIds: [],
-  modal: null,
-  dashboardDailyFilters: {
-    date: '',
-    workGroupId: 'all'
-  }
+  modal: null
 };
 
 let dashboardChartRefs = {
@@ -74,40 +70,6 @@ function formatDashboardDateLabel(value) {
   return new Intl.DateTimeFormat('he-IL', { day: '2-digit', month: '2-digit' }).format(date);
 }
 
-function getTodayDateInputValue() {
-  const now = new Date();
-  const tzOffsetMs = now.getTimezoneOffset() * 60000;
-  return new Date(now.getTime() - tzOffsetMs).toISOString().slice(0, 10);
-}
-
-function getDashboardDailyFilters() {
-  return {
-    date: state.dashboardDailyFilters.date || getTodayDateInputValue(),
-    workGroupId: state.dashboardDailyFilters.workGroupId || 'all'
-  };
-}
-
-function buildDailyChartControls() {
-  const filters = getDashboardDailyFilters();
-  const groups = Array.isArray(state.dashboardWorkGroups) ? state.dashboardWorkGroups : [];
-
-  return `
-    <div class="dashboard-daily-controls">
-      <label>
-        <span>יום</span>
-        <input class="input input-sm" type="date" id="dashboardDailyDate" value="${filters.date}" />
-      </label>
-      <label>
-        <span>קטגוריה</span>
-        <select class="input input-sm" id="dashboardDailyGroup">
-          <option value="all" ${filters.workGroupId === 'all' ? 'selected' : ''}>כל הקטגוריות</option>
-          ${groups.map((group) => `<option value="${group.id}" ${String(filters.workGroupId) === String(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}
-        </select>
-      </label>
-    </div>
-  `;
-}
-
 function renderDashboardWidgets(layout) {
   return layout
     .filter((item) => item.visible)
@@ -130,13 +92,9 @@ function renderDashboardWidgets(layout) {
 
       return `
         <div class="card dashboard-widget-card dashboard-chart-card" data-widget-key="${widget.key}">
-          <div class="dashboard-widget-head dashboard-widget-head-wrap">
-            <div>
-              <h3>${widget.title}</h3>
-            </div>
-            ${widget.key === 'daily' ? buildDailyChartControls() : ''}
+          <div class="dashboard-widget-head">
+            <h3>${widget.title}</h3>
           </div>
-          ${widget.key === 'daily' ? '<div id="dailyChartSummary" class="dashboard-daily-summary"></div>' : ''}
           <div class="chart-box"><canvas id="${widget.canvasId}"></canvas></div>
         </div>
       `;
@@ -274,41 +232,12 @@ function getCheckedWeekDays(scope) {
   });
 }
 
-function bindDailyChartControls() {
-  const dateInput = document.getElementById('dashboardDailyDate');
-  const groupSelect = document.getElementById('dashboardDailyGroup');
-
-  if (dateInput) {
-    dateInput.onchange = async (event) => {
-      state.dashboardDailyFilters.date = event.target.value || getTodayDateInputValue();
-      await renderDashboardCharts();
-    };
-  }
-
-  if (groupSelect) {
-    groupSelect.onchange = async (event) => {
-      state.dashboardDailyFilters.workGroupId = event.target.value || 'all';
-      await renderDashboardCharts();
-    };
-  }
-}
-
 async function renderDashboardCharts() {
   ensureUiOverrides();
-  const filters = getDashboardDailyFilters();
-  state.dashboardDailyFilters = { ...filters };
-  const query = new URLSearchParams();
-  query.set('date', filters.date);
-  query.set('workGroupId', filters.workGroupId);
-  const data = await api('/api/admin/dashboard-stats?' + query.toString());
-  state.dashboardWorkGroups = Array.isArray(data.workGroups) ? data.workGroups : [];
-
+  const data = await api('/api/admin/dashboard-stats');
   const layout = getDashboardLayout().filter((item) => item.visible).map((item) => item.key);
 
-  if (layout.includes('daily')) {
-    renderDailyChart(data.dailySummary);
-    bindDailyChartControls();
-  }
+  if (layout.includes('daily')) renderDailyChart(data.daily);
   if (layout.includes('inOut')) renderInOutChart(data.inOut);
   if (layout.includes('absence')) renderAbsenceChart(data.absences);
   if (layout.includes('heatmap')) renderHeatmap(data.heatmap);
@@ -317,60 +246,30 @@ function renderDailyChart(data) {
   const ctx = document.getElementById('chartDaily');
   if (!ctx) return;
 
-  const summaryHost = document.getElementById('dailyChartSummary');
-  const summary = data || {};
-  const totalEmployees = Number(summary.totalEmployees || 0);
-  const reportedCount = Number(summary.reportedCount || 0);
-  const missingCount = Math.max(totalEmployees - reportedCount, 0);
-  const reportPercent = totalEmployees > 0 ? Math.round((reportedCount / totalEmployees) * 100) : 0;
-  const categoryLabel = summary.workGroupName || 'כל הקטגוריות';
-  const dateLabel = summary.date ? new Intl.DateTimeFormat('he-IL', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(summary.date)) : '';
-
-  if (summaryHost) {
-    summaryHost.innerHTML = `
-      <div class="dashboard-summary-pill"><strong>קטגוריה:</strong> ${escapeHtml(categoryLabel)}</div>
-      <div class="dashboard-summary-pill"><strong>תאריך:</strong> ${escapeHtml(dateLabel)}</div>
-      <div class="dashboard-summary-pill"><strong>דיווחו כניסה:</strong> ${reportedCount}</div>
-      <div class="dashboard-summary-pill"><strong>לא דיווחו:</strong> ${missingCount}</div>
-      <div class="dashboard-summary-pill"><strong>אחוז דיווח:</strong> ${reportPercent}%</div>
-    `;
-  }
-
   if (dashboardChartRefs.daily) {
     dashboardChartRefs.daily.destroy();
   }
 
   dashboardChartRefs.daily = new Chart(ctx, {
-    type: 'bar',
+    type: 'line',
     data: {
-      labels: ['דיווחו כניסה', 'לא דיווחו'],
+      labels: data.map(d => formatDashboardDateLabel(d.day)),
       datasets: [{
-        label: `${categoryLabel} • ${dateLabel}`,
-        data: [reportedCount, missingCount],
-        backgroundColor: ['#2563eb', '#cbd5e1'],
-        borderRadius: 10,
-        maxBarThickness: 70
+        label: 'עובדים ביום',
+        data: data.map(d => d.count),
+        tension: 0.3,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37, 99, 235, 0.12)',
+        pointBackgroundColor: '#2563eb',
+        fill: true
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      scales: {
-        y: {
-          beginAtZero: true,
-          ticks: {
-            precision: 0
-          }
-        }
-      },
       plugins: {
         legend: {
           position: 'bottom'
-        },
-        tooltip: {
-          callbacks: {
-            label: (context) => `${context.label}: ${context.raw}`
-          }
         }
       }
     }
@@ -804,7 +703,12 @@ async function renderEmployee() {
   app.innerHTML = `
     <div class="mobile-shell">
       <div class="topbar">
-        <div class="row">
+        <div class="row employee-export-tools">
+          <select class="select employee-export-select" id="exportPeriod">
+            <option value="day">דוח יומי</option>
+            <option value="week">דוח שבועי</option>
+            <option value="month">דוח חודשי</option>
+          </select>
           <button class="btn btn-light" id="exportMyRecordsBtn" style="padding:8px 12px">אקסל</button>
         </div>
 
@@ -867,7 +771,8 @@ async function renderEmployee() {
   `;
   document.getElementById('exportMyRecordsBtn').onclick = async () => {
     try {
-      const url = window.location.origin + '/api/my-records-export';
+      const selectedPeriod = document.getElementById('exportPeriod')?.value || 'day';
+      const url = window.location.origin + '/api/my-records-export?period=' + encodeURIComponent(selectedPeriod);
 
       const res = await fetch(url, {
         method: 'GET',
@@ -876,7 +781,6 @@ async function renderEmployee() {
         }
       });
 
-      // 🔴 בדיקה אם קיבלנו HTML בטעות
       const contentType = res.headers.get('content-type') || '';
 
       if (!res.ok || contentType.includes('text/html')) {
@@ -890,7 +794,7 @@ async function renderEmployee() {
       const downloadUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = downloadUrl;
-      a.download = 'VClock_My_Records.xlsx';
+      a.download = 'VClock_My_Records_' + selectedPeriod + '.xlsx';
       document.body.appendChild(a);
       a.click();
       a.remove();
