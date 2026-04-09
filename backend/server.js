@@ -1609,6 +1609,19 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureAutoCloseSpecialRecords();
 
+    const requestedDate = String(req.query.date || '').trim();
+    const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : formatSqlDate(new Date());
+    const requestedWorkGroupId = String(req.query.workGroupId || 'all').trim();
+    const useSpecificGroup = requestedWorkGroupId && requestedWorkGroupId !== 'all';
+    const workGroupId = useSpecificGroup ? Number(requestedWorkGroupId) : null;
+
+    const workGroups = await query(`
+      SELECT id, name
+      FROM work_groups
+      WHERE is_active = 1
+      ORDER BY name ASC
+    `);
+
     const daily = await query(`
       SELECT DATE(record_time) as day,
              COUNT(DISTINCT user_id) as count
@@ -1658,11 +1671,44 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
       GROUP BY day
     `);
 
+    const dailySummary = await query(`
+      WITH filtered_users AS (
+        SELECT u.id
+        FROM users u
+        WHERE u.role = 'employee'
+          AND u.is_active = 1
+          AND ($2::int IS NULL OR u.work_group_id = $2::int)
+      ),
+      reported AS (
+        SELECT COUNT(DISTINCT ar.user_id)::int AS reported_count
+        FROM attendance_records ar
+        INNER JOIN filtered_users fu ON fu.id = ar.user_id
+        WHERE ar.record_type = 'in'
+          AND DATE(ar.record_time) = $1::date
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM filtered_users) AS total_employees,
+        COALESCE((SELECT reported_count FROM reported), 0) AS reported_count,
+        $1::date AS selected_date,
+        CASE
+          WHEN $2::int IS NULL THEN 'כל הקטגוריות'
+          ELSE COALESCE((SELECT name FROM work_groups WHERE id = $2::int), 'קטגוריה לא ידועה')
+        END AS work_group_name
+    `, [selectedDate, Number.isInteger(workGroupId) ? workGroupId : null]);
+
     res.json({
       daily: daily.rows,
+      dailySummary: {
+        date: selectedDate,
+        workGroupId: Number.isInteger(workGroupId) ? workGroupId : 'all',
+        workGroupName: dailySummary.rows[0]?.work_group_name || 'כל הקטגוריות',
+        totalEmployees: dailySummary.rows[0]?.total_employees || 0,
+        reportedCount: dailySummary.rows[0]?.reported_count || 0
+      },
       inOut: inOut.rows,
       absences: absences.rows,
-      heatmap: heatmap.rows
+      heatmap: heatmap.rows,
+      workGroups: workGroups.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
