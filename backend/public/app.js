@@ -675,14 +675,16 @@ async function deleteHoliday(id) {
   }
 }
 
-async function setReportApproval(id, approval_status, manager_note = '') {
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
   try {
     await api('/api/admin/reports/' + id + '/approval', {
       method: 'PUT',
       body: JSON.stringify({ approval_status, manager_note })
     });
     toast('success', 'סטטוס הדיווח עודכן');
-    state.editingReportId = null;
     loadReports();
   } catch (err) {
     alert(err.message);
@@ -924,14 +926,16 @@ async function deleteHoliday(id) {
   }
 }
 
-async function setReportApproval(id, approval_status, manager_note = '') {
+async function setReportApproval(id, approval_status) {
+  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
+  if (manager_note === null) return;
+
   try {
     await api('/api/admin/reports/' + id + '/approval', {
       method: 'PUT',
       body: JSON.stringify({ approval_status, manager_note })
     });
     toast('success', 'סטטוס הדיווח עודכן');
-    state.editingReportId = null;
     loadReports();
   } catch (err) {
     alert(err.message);
@@ -1213,14 +1217,20 @@ async function deleteHoliday(id) {
   }
 }
 
-async function setReportApproval(id, approval_status, manager_note = '') {
+async function setReportApproval(id, approval_status) {
   try {
+    let manager_note = '';
+    const activeId = document.querySelector('#editReportForm input[name="report_id"]')?.value;
+    if (activeId && String(activeId) === String(id)) {
+      manager_note = document.querySelector('#editReportForm input[name="manager_note"]')?.value || '';
+    }
+
     await api('/api/admin/reports/' + id + '/approval', {
       method: 'PUT',
       body: JSON.stringify({ approval_status, manager_note })
     });
     toast('success', 'סטטוס הדיווח עודכן');
-    state.editingReportId = null;
+    if (state.editingReportId === id) state.editingReportId = null;
     loadReports();
   } catch (err) {
     alert(err.message);
@@ -1429,7 +1439,6 @@ async function loadReports() {
   async function doSearch() {
     try {
       state.selectedReportIds = [];
-
       const qs = new URLSearchParams({
         employeeCode: document.getElementById('filterEmployee').value || '',
         fromDate: document.getElementById('fromDate').value || '',
@@ -1438,7 +1447,7 @@ async function loadReports() {
       });
 
       const rows = await api('/api/admin/reports?' + qs.toString());
-      const sortedRows = [...rows].sort((a, b) => {
+      rows.sort((a, b) => {
         const aPending = a.approval_status === 'pending' ? 1 : 0;
         const bPending = b.approval_status === 'pending' ? 1 : 0;
         if (aPending !== bPending) return bPending - aPending;
@@ -1465,50 +1474,50 @@ async function loadReports() {
               </tr>
             </thead>
             <tbody>
-              ${sortedRows.map(r => `
-                  <tr class="${r.approval_status === 'pending' || r.requires_admin_approval ? 'report-row-pending' : ''}">
-                    <td>
-                      <input
-                        type="checkbox"
-                        class="report-row-checkbox"
-                        value="${r.id}"
-                        onchange="toggleReportSelection(${r.id}, this.checked)"
-                      />
-                    </td>
-                    <td>${r.employee_code}</td>
-                    <td>${r.full_name}</td>
-                    <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                    <td>
-                      <div>${r.work_day_type}</div>
-                      <div class="row-badges">${rowFlagBadges(r)}</div>
-                    </td>
-                    <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
-                    <td>${r.exception_reason || ''}</td>
-                    <td>${r.manager_note || ''}</td>
-                    <td>${r.note || ''}</td>
-                    <td>
-                      ${r.location_status === 'no_permission'
-                        ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
-                        : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
-                      }
-                    </td>
-                    <td>${fmtDateTime(r.record_time)}</td>
-                    <td>
-                      <div class="action-stack">
-                        <div class="row">
-                          <button class="btn btn-light" onclick="openReportEditor(${r.id})">ערוך</button>
-                          <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
-                        </div>
-                        <div class="row">
-                          ${r.approval_status !== 'approved' ? `<button class="btn btn-ok" onclick="setReportApproval(${r.id}, 'approved', '${String(r.manager_note || '').replace(/'/g, "\'")}')">אשר</button>` : ''}
-                          ${r.approval_status !== 'rejected' ? `<button class="btn btn-danger" onclick="setReportApproval(${r.id}, 'rejected', '${String(r.manager_note || '').replace(/'/g, "\'")}')">דחה</button>` : ''}
-                          ${r.approval_status !== 'pending' ? `<button class="btn btn-light" onclick="setReportApproval(${r.id}, 'pending', '${String(r.manager_note || '').replace(/'/g, "\'")}')">החזר להמתנה</button>` : ''}
-                        </div>
+              ${rows.map(r => `
+                <tr class="${r.approval_status === 'pending' ? 'report-row-pending' : ''}">
+                  <td>
+                    <input
+                      type="checkbox"
+                      class="report-row-checkbox"
+                      value="${r.id}"
+                      onchange="toggleReportSelection(${r.id}, this.checked)"
+                    />
+                  </td>
+                  <td>${r.employee_code}</td>
+                  <td>${r.full_name}</td>
+                  <td>${r.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+                  <td>
+                    <div>${r.work_day_type}</div>
+                    <div class="row-badges">${rowFlagBadges(r)}</div>
+                  </td>
+                  <td><span class="mini-badge ${approvalStatusClass(r.approval_status)}">${approvalStatusLabel(r.approval_status)}</span></td>
+                  <td>${r.exception_reason || ''}</td>
+                  <td>${r.manager_note || ''}</td>
+                  <td>${r.note || ''}</td>
+                  <td>
+                    ${r.location_status === 'no_permission'
+                      ? '<span style="color:#b91c1c;font-weight:700">הרשאות מיקום סגורות</span>'
+                      : (r.map_link ? `<a href="${r.map_link}" target="_blank">פתח מפה</a>` : '')
+                    }
+                  </td>
+                  <td>${fmtDateTime(r.record_time)}</td>
+                  <td>
+                    <div class="action-stack">
+                      <div class="row">
+                        <button class="btn btn-light" onclick="editReport(${r.id})">ערוך</button>
+                        <button class="btn btn-danger" onclick="deleteReport(${r.id})">מחק</button>
                       </div>
-                    </td>
-                  </tr>
-                  ${state.editingReportId === r.id ? renderReportEditRow(r) : ''}
-                `).join('') || '<tr><td colspan="12">אין נתונים</td></tr>'}
+                      <div class="row">
+                        ${r.approval_status !== 'approved' ? `<button class="btn btn-ok" onclick="setReportApproval(${r.id}, 'approved')">אשר</button>` : ''}
+                        ${r.approval_status !== 'rejected' ? `<button class="btn btn-danger" onclick="setReportApproval(${r.id}, 'rejected')">דחה</button>` : ''}
+                        ${r.approval_status !== 'pending' ? `<button class="btn btn-light" onclick="setReportApproval(${r.id}, 'pending')">החזר להמתנה</button>` : ''}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                ${state.editingReportId === r.id ? buildEditReportRow(r) : ''}
+              `).join('') || '<tr><td colspan="12">אין נתונים</td></tr>'}
             </tbody>
           </table>
         </div>
@@ -1518,6 +1527,32 @@ async function loadReports() {
       if (selectAll) {
         selectAll.onchange = function () {
           toggleSelectAllReports(this);
+        };
+      }
+
+      const editForm = document.getElementById('editReportForm');
+      if (editForm) {
+        editForm.onsubmit = async (e) => {
+          e.preventDefault();
+          const fd = new FormData(editForm);
+          try {
+            await api('/api/admin/reports/' + fd.get('report_id'), {
+              method: 'PUT',
+              body: JSON.stringify({
+                record_type: fd.get('record_type'),
+                work_day_type: fd.get('work_day_type'),
+                approval_status: fd.get('approval_status'),
+                note: fd.get('note'),
+                manager_note: fd.get('manager_note'),
+                record_time: `${fd.get('record_date')}T${fd.get('record_time')}:00`
+              })
+            });
+            state.editingReportId = null;
+            toast('success', 'הדיווח עודכן');
+            await doSearch();
+          } catch (err) {
+            alert(err.message);
+          }
         };
       }
     } catch (err) {
@@ -1571,6 +1606,79 @@ async function loadReports() {
 
   await doSearch();
   await loadActionLogs();
+}
+
+function buildEditReportRow(report) {
+  const dt = new Date(report.record_time);
+  const local = Number.isNaN(dt.getTime()) ? null : new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
+  const recordDate = local ? local.toISOString().slice(0, 10) : '';
+  const recordClock = local ? local.toISOString().slice(11, 16) : '';
+  return `
+    <tr class="edit-user-row">
+      <td colspan="12">
+        <div class="card" style="background:#eef6ff;border:1px solid #bfdbfe;margin:8px 0">
+          <div class="row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <h3 style="margin:0">עריכת דיווח: ${escapeHtml(report.full_name || '')}</h3>
+            <button class="btn btn-light" type="button" onclick="cancelEditReport()">סגור</button>
+          </div>
+          <form id="editReportForm" class="grid grid-2" style="margin-top:14px">
+            <input type="hidden" name="report_id" value="${report.id}" />
+            <div>
+              <label class="label">תאריך</label>
+              <input class="input" type="date" name="record_date" value="${recordDate}" required />
+            </div>
+            <div>
+              <label class="label">שעה</label>
+              <input class="input" type="time" name="record_time" value="${recordClock}" required />
+            </div>
+            <div>
+              <label class="label">סוג דיווח</label>
+              <select class="select" name="record_type">
+                <option value="in" ${report.record_type === 'in' ? 'selected' : ''}>כניסה</option>
+                <option value="out" ${report.record_type === 'out' ? 'selected' : ''}>יציאה</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">סטטוס</label>
+              <select class="select" name="approval_status">
+                <option value="pending" ${report.approval_status === 'pending' ? 'selected' : ''}>ממתין</option>
+                <option value="approved" ${report.approval_status === 'approved' ? 'selected' : ''}>אושר</option>
+                <option value="rejected" ${report.approval_status === 'rejected' ? 'selected' : ''}>נדחה</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">סוג יום</label>
+              <input class="input" name="work_day_type" value="${escapeHtml(report.work_day_type || '')}" />
+            </div>
+            <div>
+              <label class="label">הערה</label>
+              <input class="input" name="note" value="${escapeHtml(report.note || '')}" />
+            </div>
+            <div style="grid-column:1 / -1">
+              <label class="label">הערת מנהל</label>
+              <input class="input" name="manager_note" value="${escapeHtml(report.manager_note || '')}" />
+            </div>
+            <div class="row" style="grid-column:1 / -1; gap:10px; flex-wrap:wrap">
+              <button class="btn btn-primary" type="submit">שמור שינויים</button>
+              <button class="btn btn-light" type="button" onclick="cancelEditReport()">ביטול</button>
+            </div>
+          </form>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function cancelEditReport() {
+  state.editingReportId = null;
+  loadReports();
+}
+
+async function editReport(id) {
+  state.editingReportId = id;
+  await loadReports();
+  const form = document.getElementById('editReportForm');
+  if (form) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 async function loadMonthly() {
@@ -2251,107 +2359,6 @@ async function deleteWorkGroup(id) {
     alert(err.message);
   }
 }
-function openReportEditor(id) {
-  state.editingReportId = id;
-  loadReports();
-}
-
-function closeReportEditor() {
-  state.editingReportId = null;
-  loadReports();
-}
-
-async function saveReportEdit(id) {
-  const dateValue = document.getElementById('reportEditDate_' + id)?.value || '';
-  const timeValue = document.getElementById('reportEditTime_' + id)?.value || '';
-  const record_type = document.getElementById('reportEditType_' + id)?.value || 'in';
-  const approval_status = document.getElementById('reportEditApproval_' + id)?.value || 'pending';
-  const work_day_type = document.getElementById('reportEditWorkDay_' + id)?.value || 'יום רגיל';
-  const note = document.getElementById('reportEditNote_' + id)?.value || '';
-  const manager_note = document.getElementById('reportEditManagerNote_' + id)?.value || '';
-
-  if (!dateValue || !timeValue) {
-    alert('יש לבחור תאריך ושעה');
-    return;
-  }
-
-  try {
-    await api('/api/admin/reports/' + id, {
-      method: 'PUT',
-      body: JSON.stringify({
-        record_time: `${dateValue}T${timeValue}`,
-        record_type,
-        approval_status,
-        work_day_type,
-        note,
-        manager_note
-      })
-    });
-
-    state.editingReportId = null;
-    toast('success', 'הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-function renderReportEditRow(r) {
-  const dt = new Date(r.record_time);
-  const dateValue = Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
-  const timeValue = Number.isNaN(dt.getTime()) ? '' : dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jerusalem' });
-
-  return `
-    <tr class="report-edit-row">
-      <td colspan="12">
-        <div class="report-edit-panel">
-          <div class="report-edit-grid">
-            <div>
-              <label class="label">תאריך</label>
-              <input class="input" type="date" id="reportEditDate_${r.id}" value="${dateValue}" />
-            </div>
-            <div>
-              <label class="label">שעה</label>
-              <input class="input" type="time" id="reportEditTime_${r.id}" value="${timeValue}" />
-            </div>
-            <div>
-              <label class="label">סוג</label>
-              <select class="select" id="reportEditType_${r.id}">
-                <option value="in" ${r.record_type === 'in' ? 'selected' : ''}>כניסה</option>
-                <option value="out" ${r.record_type === 'out' ? 'selected' : ''}>יציאה</option>
-              </select>
-            </div>
-            <div>
-              <label class="label">סטטוס</label>
-              <select class="select" id="reportEditApproval_${r.id}">
-                <option value="pending" ${r.approval_status === 'pending' ? 'selected' : ''}>ממתין</option>
-                <option value="approved" ${r.approval_status === 'approved' ? 'selected' : ''}>אושר</option>
-                <option value="rejected" ${r.approval_status === 'rejected' ? 'selected' : ''}>נדחה</option>
-              </select>
-            </div>
-            <div>
-              <label class="label">סוג יום</label>
-              <input class="input" id="reportEditWorkDay_${r.id}" value="${escapeHtml(r.work_day_type || '')}" />
-            </div>
-            <div>
-              <label class="label">הערה</label>
-              <input class="input" id="reportEditNote_${r.id}" value="${escapeHtml(r.note || '')}" />
-            </div>
-            <div style="grid-column:1 / -1">
-              <label class="label">הערת מנהל</label>
-              <input class="input" id="reportEditManagerNote_${r.id}" value="${escapeHtml(r.manager_note || '')}" />
-            </div>
-          </div>
-          <div class="report-edit-actions">
-            <button class="btn btn-primary" onclick="saveReportEdit(${r.id})">שמור</button>
-            <button class="btn btn-light" onclick="closeReportEditor()">ביטול</button>
-          </div>
-        </div>
-      </td>
-    </tr>
-  `;
-}
-
 async function deleteReport(id) {
   if (!confirm('האם למחוק את השורה?')) return;
 

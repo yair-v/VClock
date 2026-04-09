@@ -816,7 +816,7 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
          AND ($2 = '' OR DATE(ar.record_time) >= $2::date)
          AND ($3 = '' OR DATE(ar.record_time) <= $3::date)
          AND ($4 = '' OR ar.approval_status = $4)
-       ORDER BY CASE WHEN ar.approval_status = 'pending' THEN 0 ELSE 1 END, ar.record_time DESC, ar.id DESC`,
+       ORDER BY ar.record_time DESC, ar.id DESC`,
       [employeeCode, fromDate, toDate, approvalStatus]
     );
 
@@ -865,30 +865,41 @@ app.get('/api/admin/action-logs', authRequired, adminRequired, async (req, res) 
 app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const recordType = ['in', 'out'].includes(req.body.record_type) ? req.body.record_type : 'in';
-    const approvalStatus = ['approved', 'rejected', 'pending'].includes(req.body.approval_status)
-      ? req.body.approval_status
-      : 'pending';
-    const workDayType = String(req.body.work_day_type || 'יום רגיל').trim() || 'יום רגיל';
-    const note = String(req.body.note || '').trim();
-    const managerNote = String(req.body.manager_note || '').trim();
-    const recordTime = req.body.record_time ? new Date(req.body.record_time) : null;
+    const {
+      work_day_type,
+      note,
+      manager_note,
+      approval_status,
+      record_type,
+      record_time
+    } = req.body;
 
-    if (!recordTime || Number.isNaN(recordTime.getTime())) {
-      return res.status(400).json({ error: 'תאריך או שעה לא תקינים' });
-    }
+    const normalizedApproval = ['approved', 'rejected', 'pending'].includes(approval_status)
+      ? approval_status
+      : null;
+    const normalizedRecordType = ['in', 'out'].includes(record_type)
+      ? record_type
+      : null;
 
     await query(
       `UPDATE attendance_records
-       SET record_time = $1,
-           record_type = $2,
-           approval_status = $3,
-           requires_admin_approval = CASE WHEN $3 = 'pending' THEN 1 ELSE 0 END,
-           work_day_type = $4,
-           note = $5,
-           manager_note = $6
+       SET work_day_type = COALESCE($1, work_day_type),
+           note = COALESCE($2, note),
+           manager_note = COALESCE($3, manager_note),
+           approval_status = COALESCE($4, approval_status),
+           requires_admin_approval = CASE WHEN COALESCE($4, approval_status) = 'pending' THEN 1 ELSE 0 END,
+           record_type = COALESCE($5, record_type),
+           record_time = COALESCE($6::timestamp, record_time)
        WHERE id = $7`,
-      [recordTime.toISOString(), recordType, approvalStatus, workDayType, note, managerNote, id]
+      [
+        work_day_type || null,
+        typeof note === 'string' ? note : null,
+        typeof manager_note === 'string' ? manager_note : null,
+        normalizedApproval,
+        normalizedRecordType,
+        record_time || null,
+        id
+      ]
     );
 
     const recordRes = await query(`SELECT user_id FROM attendance_records WHERE id = $1`, [id]);
@@ -899,7 +910,7 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
       attendanceRecordId: id,
       actionType: 'attendance_edit',
       actionTitle: 'עריכת דיווח',
-      details: `עודכנו נתוני דיווח על ידי מנהל | סטטוס: ${approvalStatus} | סוג: ${recordType}`,
+      details: `עודכנו נתוני דיווח על ידי מנהל`,
       createdByUserId: req.user.id
     });
 
@@ -1641,60 +1652,99 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureAutoCloseSpecialRecords();
 
-    const daily = await query(`
-      SELECT DATE(record_time) as day,
-             COUNT(DISTINCT user_id) as count
-      FROM attendance_records
-      WHERE record_type = 'in'
-      GROUP BY day
-      ORDER BY day ASC
-    `);
+    const selectedDate = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
+    const groupId = req.query.groupId ? parseInt(req.query.groupId, 10) : null;
 
-    const inOut = await query(`
-      SELECT DATE(record_time) as day,
-             COUNT(*) FILTER (WHERE record_type = 'in') as ins,
-             COUNT(*) FILTER (WHERE record_type = 'out') as outs
-      FROM attendance_records
-      GROUP BY day
-      ORDER BY day ASC
-    `);
+    let groupName = 'כל הקטגוריות';
+    if (groupId) {
+      const groupRes = await query(`SELECT name FROM work_groups WHERE id = $1`, [groupId]);
+      if (groupRes.rows[0]?.name) groupName = groupRes.rows[0].name;
+    }
 
-    const absences = await query(`
-      SELECT
-        u.full_name,
-        COUNT(*) FILTER (
-          WHERE NOT EXISTS (
-            SELECT 1 FROM attendance_records ar
-            WHERE ar.user_id = u.id
-            AND DATE(ar.record_time) = d.day
-            AND ar.record_type = 'in'
-          )
-        ) as absences
-      FROM users u,
-      generate_series(
-        CURRENT_DATE - INTERVAL '30 days',
-        CURRENT_DATE,
-        '1 day'
-      ) as d(day)
-      WHERE u.role = 'employee'
-      GROUP BY u.full_name
-      ORDER BY absences DESC
-      LIMIT 10
-    `);
+    const usersRes = await query(
+      `SELECT u.id, u.full_name
+       FROM users u
+       WHERE u.role = 'employee'
+         AND u.is_active = 1
+         AND ($1::int IS NULL OR u.work_group_id = $1::int)
+       ORDER BY u.full_name ASC`,
+      [groupId]
+    );
+    const employees = usersRes.rows;
+    const userIds = employees.map((u) => u.id);
+    const totalEmployees = employees.length;
 
-    const heatmap = await query(`
-      SELECT DATE(record_time) as day,
-             COUNT(*) as value
-      FROM attendance_records
-      WHERE record_type = 'in'
-      GROUP BY day
-    `);
+    let reported = 0;
+    let ins = 0;
+    let outs = 0;
+    let missingEmployees = [];
+
+    if (userIds.length) {
+      const dayStats = await query(
+        `SELECT
+           COUNT(DISTINCT CASE WHEN record_type = 'in' THEN user_id END)::int AS reported,
+           COUNT(*) FILTER (WHERE record_type = 'in')::int AS ins,
+           COUNT(*) FILTER (WHERE record_type = 'out')::int AS outs
+         FROM attendance_records
+         WHERE DATE(record_time) = $1::date
+           AND user_id = ANY($2::int[])`,
+        [selectedDate, userIds]
+      );
+      reported = dayStats.rows[0]?.reported || 0;
+      ins = dayStats.rows[0]?.ins || 0;
+      outs = dayStats.rows[0]?.outs || 0;
+
+      const missingRes = await query(
+        `SELECT u.full_name, 1::int AS absences
+         FROM users u
+         WHERE u.id = ANY($2::int[])
+           AND NOT EXISTS (
+             SELECT 1
+             FROM attendance_records ar
+             WHERE ar.user_id = u.id
+               AND DATE(ar.record_time) = $1::date
+               AND ar.record_type = 'in'
+           )
+         ORDER BY u.full_name ASC
+         LIMIT 10`,
+        [selectedDate, userIds]
+      );
+      missingEmployees = missingRes.rows;
+    }
+
+    const heatmapRes = await query(
+      `SELECT DATE(ar.record_time) AS day,
+              COUNT(*)::int AS value
+       FROM attendance_records ar
+       JOIN users u ON u.id = ar.user_id
+       WHERE ar.record_type = 'in'
+         AND DATE(ar.record_time) >= ($1::date - INTERVAL '29 days')
+         AND DATE(ar.record_time) <= $1::date
+         AND ($2::int IS NULL OR u.work_group_id = $2::int)
+       GROUP BY DATE(ar.record_time)
+       ORDER BY DATE(ar.record_time) ASC`,
+      [selectedDate, groupId]
+    );
 
     res.json({
-      daily: daily.rows,
-      inOut: inOut.rows,
-      absences: absences.rows,
-      heatmap: heatmap.rows
+      meta: {
+        selectedDate,
+        groupId,
+        groupName,
+        totalEmployees,
+        absenceCount: Math.max(totalEmployees - reported, 0)
+      },
+      daily: {
+        reported,
+        totalEmployees,
+        notReported: Math.max(totalEmployees - reported, 0)
+      },
+      inOut: {
+        ins,
+        outs
+      },
+      absences: missingEmployees,
+      heatmap: heatmapRes.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
