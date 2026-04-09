@@ -763,17 +763,14 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
     const totalRecords = await query(
       `SELECT COUNT(*)::int AS count FROM attendance_records`
     );
-    const { year, month } = getNowInIsrael();
-    const monthStart = `${year}-${String(month).padStart(2, '0')}-01 00:00:00`;
-    const nextMonthDate = new Date(year, month, 1);
-    const nextMonthStart = formatSqlDateTimeLocal(nextMonthDate);
+    const { start: workdayStart, end: workdayEnd } = getWorkdayWindow();
 
-    const currentMonthRecords = await query(
+    const todayRecords = await query(
       `SELECT COUNT(*)::int AS count
        FROM attendance_records
        WHERE record_time >= $1::timestamp
          AND record_time < $2::timestamp`,
-      [monthStart, nextMonthStart]
+      [formatSqlDateTimeLocal(workdayStart), formatSqlDateTimeLocal(workdayEnd)]
     );
     const pendingApprovals = await query(
       `SELECT COUNT(*)::int AS count
@@ -793,7 +790,7 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
       totalUsers: totalUsers.rows[0].count,
       activeUsers: activeUsers.rows[0].count,
       totalRecords: totalRecords.rows[0].count,
-      currentMonthRecords: currentMonthRecords.rows[0].count,
+      todayRecords: todayRecords.rows[0].count,
       pendingApprovals: pendingApprovals.rows[0].count,
       actionRequests: actionRequests.rows
     });
@@ -1167,6 +1164,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
   try {
     const id = parseInt(req.params.id, 10);
     const {
+      employee_code,
       full_name,
       password,
       role,
@@ -1188,6 +1186,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
 
+    const nextEmployeeCode = typeof employee_code !== 'undefined' ? String(employee_code).trim() : user.employee_code;
     const nextName = typeof full_name !== 'undefined' ? String(full_name) : user.full_name;
     const nextRole = typeof role !== 'undefined' ? (role === 'admin' ? 'admin' : 'employee') : user.role;
     const nextActive = typeof is_active !== 'undefined' ? (is_active ? 1 : 0) : user.is_active;
@@ -1208,19 +1207,34 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       ? (friday_rotation_start_allowed ? 1 : 0)
       : user.friday_rotation_start_allowed;
 
+    if (!nextEmployeeCode || !nextName) {
+      return res.status(400).json({ error: 'יש למלא קוד עובד ושם מלא' });
+    }
+
+    const exists = await query(
+      `SELECT id FROM users WHERE employee_code = $1 AND id <> $2`,
+      [nextEmployeeCode, id]
+    );
+
+    if (exists.rows.length > 0) {
+      return res.status(400).json({ error: 'קוד עובד כבר קיים' });
+    }
+
     await query(
       `UPDATE users
-       SET full_name = $1,
-           password_hash = $2,
-           role = $3,
-           is_active = $4,
-           day_closed = $5,
-           work_group_id = $6,
-           allowed_work_days = $7,
-           friday_rotation_anchor_date = $8,
-           friday_rotation_start_allowed = $9
-       WHERE id = $10`,
+       SET employee_code = $1,
+           full_name = $2,
+           password_hash = $3,
+           role = $4,
+           is_active = $5,
+           day_closed = $6,
+           work_group_id = $7,
+           allowed_work_days = $8,
+           friday_rotation_anchor_date = $9,
+           friday_rotation_start_allowed = $10
+       WHERE id = $11`,
       [
+        nextEmployeeCode,
         nextName,
         nextPasswordHash,
         nextRole,
@@ -1612,90 +1626,60 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureAutoCloseSpecialRecords();
 
-    const selectedDate = String(req.query.date || getNowInIsrael().dateString).slice(0, 10);
-    const groupId = req.query.groupId ? parseInt(req.query.groupId, 10) : null;
+    const daily = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(DISTINCT user_id) as count
+      FROM attendance_records
+      WHERE record_type = 'in'
+      GROUP BY day
+      ORDER BY day ASC
+    `);
 
-    let groupName = 'כל הקטגוריות';
-    if (groupId) {
-      const groupResult = await query(`SELECT name FROM work_groups WHERE id = $1`, [groupId]);
-      groupName = groupResult.rows[0]?.name || groupName;
-    }
+    const inOut = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(*) FILTER (WHERE record_type = 'in') as ins,
+             COUNT(*) FILTER (WHERE record_type = 'out') as outs
+      FROM attendance_records
+      GROUP BY day
+      ORDER BY day ASC
+    `);
 
-    const usersParams = [groupId];
-    let groupUsersSql = `
-  SELECT u.id, u.full_name
-  FROM users u
-  WHERE u.role = 'employee'
-    AND ($1::int IS NULL OR u.work_group_id = $1::int)
-  ORDER BY u.full_name ASC
-`;
-    const usersResult = await query(groupUsersSql, usersParams);
+    const absences = await query(`
+      SELECT
+        u.full_name,
+        COUNT(*) FILTER (
+          WHERE NOT EXISTS (
+            SELECT 1 FROM attendance_records ar
+            WHERE ar.user_id = u.id
+            AND DATE(ar.record_time) = d.day
+            AND ar.record_type = 'in'
+          )
+        ) as absences
+      FROM users u,
+      generate_series(
+        CURRENT_DATE - INTERVAL '30 days',
+        CURRENT_DATE,
+        '1 day'
+      ) as d(day)
+      WHERE u.role = 'employee'
+      GROUP BY u.full_name
+      ORDER BY absences DESC
+      LIMIT 10
+    `);
 
-    const users = usersResult.rows;
-    const userIds = users.map((u) => u.id);
-
-    let reportedUsers = [];
-    let inOut = { ins: 0, outs: 0 };
-    let heatmapRows = [];
-
-    if (userIds.length) {
-      const params = [selectedDate, userIds];
-      const reportedResult = await query(`
-        SELECT DISTINCT user_id
-        FROM attendance_records
-        WHERE DATE(record_time) = $1::date
-          AND record_type = 'in'
-          AND user_id = ANY($2::int[])
-      `, params);
-      reportedUsers = reportedResult.rows.map((row) => row.user_id);
-
-      const inOutResult = await query(`
-        SELECT
-          COUNT(*) FILTER (WHERE record_type = 'in')::int AS ins,
-          COUNT(*) FILTER (WHERE record_type = 'out')::int AS outs
-        FROM attendance_records
-        WHERE DATE(record_time) = $1::date
-          AND user_id = ANY($2::int[])
-      `, params);
-      inOut = inOutResult.rows[0] || inOut;
-
-      heatmapRows = (await query(`
-        SELECT DATE(record_time) as day, COUNT(*)::int as value
-        FROM attendance_records
-        WHERE record_type = 'in'
-          AND DATE(record_time) >= ($1::date - INTERVAL '29 days')
-          AND DATE(record_time) <= $1::date
-          AND user_id = ANY($2::int[])
-        GROUP BY day
-        ORDER BY day ASC
-      `, params)).rows;
-    }
-
-    const reportedSet = new Set(reportedUsers.map(Number));
-    const absentUsers = users.filter((user) => !reportedSet.has(Number(user.id)));
+    const heatmap = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(*) as value
+      FROM attendance_records
+      WHERE record_type = 'in'
+      GROUP BY day
+    `);
 
     res.json({
-      meta: {
-        selectedDate,
-        groupId,
-        groupName,
-        totalEmployees: users.length,
-        absenceCount: absentUsers.length
-      },
-      daily: {
-        reported: reportedUsers.length,
-        notReported: Math.max(users.length - reportedUsers.length, 0),
-        totalEmployees: users.length
-      },
-      inOut: {
-        ins: Number(inOut.ins || 0),
-        outs: Number(inOut.outs || 0)
-      },
-      absences: absentUsers.slice(0, 20).map((user) => ({
-        full_name: user.full_name,
-        absences: 1
-      })),
-      heatmap: heatmapRows
+      daily: daily.rows,
+      inOut: inOut.rows,
+      absences: absences.rows,
+      heatmap: heatmap.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

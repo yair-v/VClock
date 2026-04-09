@@ -1632,54 +1632,110 @@ async function loadMonthly() {
 }
 
 
+function buildEditUserRow(user, groups) {
+  return `
+    <tr class="edit-user-row">
+      <td colspan="10">
+        <div class="card" style="background:#eef6ff;border:1px solid #bfdbfe;margin:8px 0">
+          <div class="row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <h3 style="margin:0">עריכת משתמש: ${escapeHtml(user.full_name)}</h3>
+            <button class="btn btn-light" type="button" onclick="cancelEditUser()">סגור</button>
+          </div>
+          <form id="editUserForm" class="grid grid-2" style="margin-top:14px">
+            <div>
+              <label class="label">קוד עובד</label>
+              <input class="input" name="employee_code" value="${escapeHtml(user.employee_code || '')}" required />
+            </div>
+            <div>
+              <label class="label">שם מלא</label>
+              <input class="input" name="full_name" value="${escapeHtml(user.full_name || '')}" required />
+            </div>
+            <div>
+              <label class="label">סיסמה חדשה</label>
+              <input class="input" name="password" placeholder="השאר ריק אם לא רוצים לשנות" />
+            </div>
+            <div>
+              <label class="label">תפקיד</label>
+              <select class="select" name="role">
+                <option value="employee" ${user.role === 'employee' ? 'selected' : ''}>employee</option>
+                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>admin</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">קבוצת עבודה</label>
+              <select class="select" name="work_group_id">
+                <option value="">ללא קבוצה</option>
+                ${groups.map(group => `<option value="${group.id}" ${Number(user.work_group_id) === Number(group.id) ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="label">תאריך עוגן שישי לסירוגין</label>
+              <input class="input" type="date" name="friday_rotation_anchor_date" value="${escapeHtml((user.friday_rotation_anchor_date || '').slice(0, 10))}" />
+            </div>
+            <div>
+              <label class="label">ימי עבודה אישיים</label>
+              ${renderWeekdayCheckboxes('edit_user_work_days', user.allowed_work_days || [])}
+            </div>
+            <div>
+              <label class="label">אפשרויות</label>
+              <div class="stack-sm">
+                <label><input type="checkbox" name="friday_rotation_start_allowed" ${user.friday_rotation_start_allowed ? 'checked' : ''} /> בשישי של תאריך העוגן מותר לעבוד רגיל</label>
+                <label><input type="checkbox" name="is_active" ${user.is_active ? 'checked' : ''} /> משתמש פעיל</label>
+                <label><input type="checkbox" name="day_closed" ${user.day_closed ? 'checked' : ''} /> יום העבודה של המשתמש סגור</label>
+              </div>
+            </div>
+            <div class="row" style="grid-column:1 / -1; gap:10px; flex-wrap:wrap">
+              <button class="btn btn-primary" type="submit">שמור שינויים</button>
+              <button class="btn btn-light" type="button" onclick="cancelEditUser()">ביטול</button>
+            </div>
+          </form>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function cancelEditUser() {
+  state.editingUserId = null;
+  loadUsers();
+}
+
 async function editUser(id) {
-  try {
-    const users = await api('/api/admin/users');
-    const user = users.find(u => u.id === id);
+  state.editingUserId = id;
+  await loadUsers();
+  const form = document.getElementById('editUserForm');
+  if (!form) return;
 
-    if (!user) {
-      alert('משתמש לא נמצא');
-      return;
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+
+    try {
+      await api('/api/admin/users/' + id, {
+        method: 'PUT',
+        body: JSON.stringify({
+          employee_code: fd.get('employee_code'),
+          full_name: fd.get('full_name'),
+          password: fd.get('password'),
+          role: fd.get('role'),
+          is_active: fd.get('is_active') === 'on',
+          day_closed: fd.get('day_closed') === 'on',
+          work_group_id: fd.get('work_group_id') || null,
+          allowed_work_days: getCheckedWeekDays(form),
+          friday_rotation_anchor_date: fd.get('friday_rotation_anchor_date') || null,
+          friday_rotation_start_allowed: fd.get('friday_rotation_start_allowed') === 'on'
+        })
+      });
+
+      alert('המשתמש עודכן בהצלחה');
+      state.editingUserId = null;
+      loadUsers();
+    } catch (err) {
+      alert(err.message);
     }
+  };
 
-    const full_name = prompt('שם חדש:', user.full_name);
-    if (full_name === null) return;
-
-    const password = prompt('סיסמה חדשה (אפשר להשאיר ריק):', '');
-    if (password === null) return;
-
-    const role = prompt('תפקיד (admin / employee):', user.role);
-    if (role === null) return;
-
-    const friday_rotation_anchor_date = prompt('תאריך עוגן לשישי לסירוגין (YYYY-MM-DD):', (user.friday_rotation_anchor_date || '').slice(0, 10));
-    if (friday_rotation_anchor_date === null) return;
-
-    const fridayStartAnswer = prompt('האם מהתאריך הזה שישי רגיל מאושר? כתוב כן או לא', user.friday_rotation_start_allowed ? 'כן' : 'לא');
-    if (fridayStartAnswer === null) return;
-    const friday_rotation_start_allowed = ['כן', 'yes', 'y', '1', 'true'].includes(String(fridayStartAnswer).trim().toLowerCase());
-
-    const is_active = confirm('האם המשתמש יהיה פעיל?');
-
-    await api('/api/admin/users/' + id, {
-      method: 'PUT',
-      body: JSON.stringify({
-        full_name,
-        password,
-        role,
-        is_active,
-        day_closed: user.day_closed,
-        work_group_id: user.work_group_id,
-        allowed_work_days: user.allowed_work_days || [],
-        friday_rotation_anchor_date,
-        friday_rotation_start_allowed
-      })
-    });
-
-    alert('המשתמש עודכן בהצלחה');
-    loadUsers();
-  } catch (err) {
-    alert(err.message);
-  }
+  form.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 async function deleteUser(id) {
@@ -1851,6 +1907,7 @@ async function loadUsers() {
                     </div>
                   </td>
                 </tr>
+                ${state.editingUserId === r.id ? buildEditUserRow(r, groups) : ''}
               `).join('') || '<tr><td colspan="10">אין משתמשים</td></tr>'}
           </tbody>
         </table>
