@@ -1086,3 +1086,12 @@ button:disabled,
     grid-template-columns: 1fr;
   }
 }
+
+
+.edit-report-row td {
+  background: #f8fbff;
+}
+
+.report-row-pending td {
+  background: rgba(226, 232, 240, 0.35);
+}

@@ -10,7 +10,8 @@ const state = {
   selectedReportIds: [],
   modal: null,
   dashboardGroups: [],
-  dashboardFilters: {}
+  dashboardFilters: {},
+  editingReportId: null
 };
 
 let dashboardChartRefs = {
@@ -1506,6 +1507,7 @@ async function loadReports() {
                       </div>
                     </td>
                   </tr>
+                ${state.editingReportId === r.id ? buildEditReportRow(r) : ''}
                 `).join('') || '<tr><td colspan="12">אין נתונים</td></tr>'}
             </tbody>
           </table>
@@ -1631,6 +1633,100 @@ async function loadMonthly() {
   loadData();
 }
 
+
+
+function buildEditReportRow(report) {
+  const dtValue = report.record_time
+    ? new Date(report.record_time).toLocaleString('sv-SE', { timeZone: 'Asia/Jerusalem' }).replace(' ', 'T').slice(0, 16)
+    : '';
+
+  return `
+    <tr class="edit-user-row edit-report-row">
+      <td colspan="12">
+        <div class="card" style="background:#eef6ff;border:1px solid #bfdbfe;margin:8px 0">
+          <div class="row" style="justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <h3 style="margin:0">עריכת דיווח: ${escapeHtml(report.full_name || '')}</h3>
+            <button class="btn btn-light" type="button" onclick="cancelEditReport()">סגור</button>
+          </div>
+          <form id="editReportForm" class="grid grid-2" style="margin-top:14px">
+            <div>
+              <label class="label">תאריך ושעה</label>
+              <input class="input" type="datetime-local" name="record_time" value="${escapeHtml(dtValue)}" required />
+            </div>
+            <div>
+              <label class="label">סוג דיווח</label>
+              <select class="select" name="record_type">
+                <option value="in" ${report.record_type === 'in' ? 'selected' : ''}>כניסה</option>
+                <option value="out" ${report.record_type === 'out' ? 'selected' : ''}>יציאה</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">סוג יום</label>
+              <input class="input" name="work_day_type" value="${escapeHtml(report.work_day_type || '')}" />
+            </div>
+            <div>
+              <label class="label">סטטוס</label>
+              <select class="select" name="approval_status">
+                <option value="pending" ${report.approval_status === 'pending' ? 'selected' : ''}>ממתין</option>
+                <option value="approved" ${report.approval_status === 'approved' ? 'selected' : ''}>אושר</option>
+                <option value="rejected" ${report.approval_status === 'rejected' ? 'selected' : ''}>נדחה</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">הערה</label>
+              <input class="input" name="note" value="${escapeHtml(report.note || '')}" />
+            </div>
+            <div>
+              <label class="label">הערת מנהל</label>
+              <input class="input" name="manager_note" value="${escapeHtml(report.manager_note || '')}" />
+            </div>
+            <div class="row" style="grid-column:1 / -1; gap:10px; flex-wrap:wrap">
+              <button class="btn btn-primary" type="submit">שמור שינויים</button>
+              <button class="btn btn-light" type="button" onclick="cancelEditReport()">ביטול</button>
+            </div>
+          </form>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function cancelEditReport() {
+  state.editingReportId = null;
+  loadReports();
+}
+
+async function editReport(id) {
+  state.editingReportId = id;
+  await loadReports();
+  const form = document.getElementById('editReportForm');
+  if (!form) return;
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    try {
+      await api('/api/admin/reports/' + id, {
+        method: 'PUT',
+        body: JSON.stringify({
+          record_time: fd.get('record_time'),
+          record_type: fd.get('record_type'),
+          work_day_type: fd.get('work_day_type'),
+          approval_status: fd.get('approval_status'),
+          note: fd.get('note'),
+          manager_note: fd.get('manager_note')
+        })
+      });
+      toast('success', 'הדיווח עודכן בהצלחה');
+      state.editingReportId = null;
+      loadReports();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
 function buildEditUserRow(user, groups) {
   return `
@@ -2249,33 +2345,6 @@ async function deleteWorkGroup(id) {
     alert(err.message);
   }
 }
-async function editReport(id, currentType, currentNote, currentManagerNote) {
-  const work_day_type = prompt('סוג יום עבודה:', currentType || '');
-  if (work_day_type === null) return;
-
-  const note = prompt('הערה:', currentNote || '');
-  if (note === null) return;
-
-  const manager_note = prompt('הערת מנהל:', currentManagerNote || '');
-  if (manager_note === null) return;
-
-  try {
-    await api('/api/admin/reports/' + id, {
-      method: 'PUT',
-      body: JSON.stringify({
-        work_day_type,
-        note,
-        manager_note
-      })
-    });
-
-    alert('הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
 async function deleteReport(id) {
   if (!confirm('האם למחוק את השורה?')) return;
 
