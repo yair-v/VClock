@@ -663,35 +663,7 @@ function renderLogin() {
 
       saveAuth(data.token, data.user);
       toast('success', 'התחברת בהצלחה');
-      
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
-
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function setReportApproval(id, approval_status) {
-  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-  if (manager_note === null) return;
-
-  try {
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-render();
+      render();
     } catch (err) {
       showMessage('error', err.message);
     }
@@ -914,35 +886,7 @@ async function renderEmployee() {
   };
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
-
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function setReportApproval(id, approval_status) {
-  const manager_note = prompt('הערת מנהל (אפשר להשאיר ריק):', '');
-  if (manager_note === null) return;
-
-  try {
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-render();
+    render();
   };
 
   function updateClock() {
@@ -1205,39 +1149,7 @@ async function renderAdmin() {
 
   document.getElementById('logoutBtn').onclick = () => {
     clearAuth();
-    
-async function deleteHoliday(id) {
-  if (!confirm('למחוק את החג?')) return;
-
-  try {
-    await api('/api/admin/holidays/' + id, { method: 'DELETE' });
-    loadSettings();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-async function setReportApproval(id, approval_status) {
-  try {
-    let manager_note = '';
-    const activeId = document.querySelector('#editReportForm input[name="report_id"]')?.value;
-    if (activeId && String(activeId) === String(id)) {
-      manager_note = document.querySelector('#editReportForm input[name="manager_note"]')?.value || '';
-    }
-
-    await api('/api/admin/reports/' + id + '/approval', {
-      method: 'PUT',
-      body: JSON.stringify({ approval_status, manager_note })
-    });
-    toast('success', 'סטטוס הדיווח עודכן');
-    if (state.editingReportId === id) state.editingReportId = null;
-    loadReports();
-  } catch (err) {
-    alert(err.message);
-  }
-}
-
-render();
+    render();
   };
 
   document.getElementById('shutdownBtn').onclick = async () => {
