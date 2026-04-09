@@ -1621,16 +1621,16 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
       groupName = groupResult.rows[0]?.name || groupName;
     }
 
-    const usersParams = [selectedDate];
+    const usersParams = [groupId];
     let groupUsersSql = `
-      SELECT u.id, u.full_name
-      FROM users u
-      WHERE u.role = 'employee'
-        AND ($2::int IS NULL OR u.work_group_id = $2::int)
-      ORDER BY u.full_name ASC
-    `;
-    usersParams.push(groupId);
+  SELECT u.id, u.full_name
+  FROM users u
+  WHERE u.role = 'employee'
+    AND ($1::int IS NULL OR u.work_group_id = $1::int)
+  ORDER BY u.full_name ASC
+`;
     const usersResult = await query(groupUsersSql, usersParams);
+
     const users = usersResult.rows;
     const userIds = users.map((u) => u.id);
 
