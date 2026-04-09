@@ -765,12 +765,6 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
     );
     const { start: workdayStart, end: workdayEnd } = getWorkdayWindow();
 
-    const currentMonthRecords = await query(
-      `SELECT COUNT(*)::int AS count
-       FROM attendance_records
-       WHERE TO_CHAR(record_time, 'YYYY-MM') = TO_CHAR(CURRENT_DATE, 'YYYY-MM')`
-    );
-
     const todayRecords = await query(
       `SELECT COUNT(*)::int AS count
        FROM attendance_records
@@ -796,7 +790,6 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
       totalUsers: totalUsers.rows[0].count,
       activeUsers: activeUsers.rows[0].count,
       totalRecords: totalRecords.rows[0].count,
-      currentMonthRecords: currentMonthRecords.rows[0].count,
       todayRecords: todayRecords.rows[0].count,
       pendingApprovals: pendingApprovals.rows[0].count,
       actionRequests: actionRequests.rows
@@ -872,50 +865,45 @@ app.get('/api/admin/action-logs', authRequired, adminRequired, async (req, res) 
 app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const { record_time, record_type, work_day_type, approval_status, note, manager_note } = req.body;
+    const recordType = ['in', 'out'].includes(req.body.record_type) ? req.body.record_type : 'in';
+    const approvalStatus = ['approved', 'rejected', 'pending'].includes(req.body.approval_status)
+      ? req.body.approval_status
+      : 'pending';
+    const workDayType = String(req.body.work_day_type || 'יום רגיל').trim() || 'יום רגיל';
+    const note = String(req.body.note || '').trim();
+    const managerNote = String(req.body.manager_note || '').trim();
+    const recordTime = req.body.record_time ? new Date(req.body.record_time) : null;
 
-    const currentRes = await query(`SELECT * FROM attendance_records WHERE id = $1`, [id]);
-    const current = currentRes.rows[0];
-    if (!current) {
-      return res.status(404).json({ error: 'הרשומה לא נמצאה' });
+    if (!recordTime || Number.isNaN(recordTime.getTime())) {
+      return res.status(400).json({ error: 'תאריך או שעה לא תקינים' });
     }
 
-    const nextApprovalStatus = ['approved', 'rejected', 'pending'].includes(approval_status)
-      ? approval_status
-      : (current.approval_status || 'approved');
-
-    const updated = await query(
+    await query(
       `UPDATE attendance_records
        SET record_time = $1,
            record_type = $2,
-           work_day_type = $3,
-           approval_status = $4,
-           requires_admin_approval = CASE WHEN $4 = 'pending' THEN 1 ELSE 0 END,
+           approval_status = $3,
+           requires_admin_approval = CASE WHEN $3 = 'pending' THEN 1 ELSE 0 END,
+           work_day_type = $4,
            note = $5,
            manager_note = $6
-       WHERE id = $7
-       RETURNING *`,
-      [
-        record_time ? new Date(record_time) : current.record_time,
-        record_type === 'out' ? 'out' : 'in',
-        work_day_type || 'יום רגיל',
-        nextApprovalStatus,
-        note || '',
-        manager_note || '',
-        id
-      ]
+       WHERE id = $7`,
+      [recordTime.toISOString(), recordType, approvalStatus, workDayType, note, managerNote, id]
     );
 
+    const recordRes = await query(`SELECT user_id FROM attendance_records WHERE id = $1`, [id]);
+    const record = recordRes.rows[0];
+
     await logAction({
-      userId: updated.rows[0].user_id,
+      userId: record ? record.user_id : null,
       attendanceRecordId: id,
       actionType: 'attendance_edit',
       actionTitle: 'עריכת דיווח',
-      details: `עודכנו נתוני דיווח על ידי מנהל`,
+      details: `עודכנו נתוני דיווח על ידי מנהל | סטטוס: ${approvalStatus} | סוג: ${recordType}`,
       createdByUserId: req.user.id
     });
 
-    res.json({ success: true, record: updated.rows[0] });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1653,87 +1641,60 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureAutoCloseSpecialRecords();
 
-    const selectedDate = req.query.date || getNowInIsrael().dateString;
-    const groupId = req.query.groupId ? parseInt(req.query.groupId, 10) : null;
+    const daily = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(DISTINCT user_id) as count
+      FROM attendance_records
+      WHERE record_type = 'in'
+      GROUP BY day
+      ORDER BY day ASC
+    `);
 
-    const groupRes = groupId
-      ? await query(`SELECT id, name FROM work_groups WHERE id = $1`, [groupId])
-      : { rows: [] };
-    const groupName = groupRes.rows[0]?.name || 'כל הקטגוריות';
+    const inOut = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(*) FILTER (WHERE record_type = 'in') as ins,
+             COUNT(*) FILTER (WHERE record_type = 'out') as outs
+      FROM attendance_records
+      GROUP BY day
+      ORDER BY day ASC
+    `);
 
-    const employeeRes = await query(
-      `SELECT u.id, u.full_name
-       FROM users u
-       WHERE u.role = 'employee'
-         AND u.is_active = 1
-         AND ($1::int IS NULL OR u.work_group_id = $1::int)
-       ORDER BY u.full_name ASC`,
-      [groupId]
-    );
-    const employees = employeeRes.rows;
-    const employeeIds = employees.map((row) => row.id);
+    const absences = await query(`
+      SELECT
+        u.full_name,
+        COUNT(*) FILTER (
+          WHERE NOT EXISTS (
+            SELECT 1 FROM attendance_records ar
+            WHERE ar.user_id = u.id
+            AND DATE(ar.record_time) = d.day
+            AND ar.record_type = 'in'
+          )
+        ) as absences
+      FROM users u,
+      generate_series(
+        CURRENT_DATE - INTERVAL '30 days',
+        CURRENT_DATE,
+        '1 day'
+      ) as d(day)
+      WHERE u.role = 'employee'
+      GROUP BY u.full_name
+      ORDER BY absences DESC
+      LIMIT 10
+    `);
 
-    let reported = 0;
-    let ins = 0;
-    let outs = 0;
-    let absentRows = employees.map((row) => ({ full_name: row.full_name, absences: 1 }));
-
-    if (employeeIds.length) {
-      const dayStats = await query(
-        `SELECT
-           COUNT(DISTINCT user_id) FILTER (WHERE record_type = 'in')::int AS reported,
-           COUNT(*) FILTER (WHERE record_type = 'in')::int AS ins,
-           COUNT(*) FILTER (WHERE record_type = 'out')::int AS outs
-         FROM attendance_records
-         WHERE DATE(record_time) = $1::date
-           AND user_id = ANY($2::int[])`,
-        [selectedDate, employeeIds]
-      );
-      reported = Number(dayStats.rows[0]?.reported || 0);
-      ins = Number(dayStats.rows[0]?.ins || 0);
-      outs = Number(dayStats.rows[0]?.outs || 0);
-
-      const absentRes = await query(
-        `SELECT u.full_name, 1 AS absences
-         FROM users u
-         WHERE u.id = ANY($2::int[])
-           AND NOT EXISTS (
-             SELECT 1 FROM attendance_records ar
-             WHERE ar.user_id = u.id
-               AND DATE(ar.record_time) = $1::date
-               AND ar.record_type = 'in'
-           )
-         ORDER BY u.full_name ASC`,
-        [selectedDate, employeeIds]
-      );
-      absentRows = absentRes.rows;
-    }
-
-    const heatmap = await query(
-      `SELECT DATE(record_time) AS day,
-              COUNT(*) FILTER (WHERE record_type = 'in')::int AS value
-       FROM attendance_records
-       WHERE DATE(record_time) BETWEEN ($1::date - INTERVAL '29 days') AND $1::date
-         AND ($2::int IS NULL OR user_id IN (SELECT id FROM users WHERE work_group_id = $2::int))
-       GROUP BY DATE(record_time)
-       ORDER BY DATE(record_time) ASC`,
-      [selectedDate, groupId]
-    );
-
-    const totalEmployees = employees.length;
-    const notReported = Math.max(totalEmployees - reported, 0);
+    const heatmap = await query(`
+      SELECT DATE(record_time) as day,
+             COUNT(*) as value
+      FROM attendance_records
+      WHERE record_type = 'in'
+      GROUP BY day
+    `);
 
     res.json({
-      daily: { reported, totalEmployees, notReported },
-      inOut: { ins, outs },
-      absences: absentRows,
-      heatmap: heatmap.rows,
-      meta: {
-        selectedDate,
-        groupId,
-        groupName,
-        absenceCount: absentRows.length
-      }
+      daily: daily.rows,
+      inOut: inOut.rows,
+      absences: absences.rows,
+      heatmap: heatmap.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

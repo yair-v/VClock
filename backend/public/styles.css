@@ -1088,10 +1088,25 @@ button:disabled,
 }
 
 
-.edit-report-row td {
+.report-edit-row td {
   background: #f8fbff;
 }
 
-.report-row-pending td {
-  background: rgba(226, 232, 240, 0.35);
+.report-edit-panel {
+  padding: 16px;
+  border: 1px solid #d9e3f0;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.report-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.report-edit-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
 }
