@@ -288,7 +288,7 @@ textarea {
 .nav-btn {
   background: linear-gradient(180deg, var(--primary) 0%, var(--primary-2) 100%);
   color: #fff;
-  box-shadow: 0 10px 22px rgba(21, 92, 206, 0.24);
+  box-shadow: 0 10px 22px rgb(20, 236, 67);
 }
 
 .secondary-btn {
