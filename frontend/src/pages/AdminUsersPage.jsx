@@ -1,3 +1,4 @@
+frontend / src / pages / AdminUsersPage.jsx
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../services/api';
 
@@ -18,7 +19,7 @@ export default function AdminUsersPage() {
   async function loadUsers() {
     setError('');
     try {
-      const data = await apiGet('/users');
+      const data = await apiGet('/admin/users');
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -35,8 +36,15 @@ export default function AdminUsersPage() {
     setError('');
 
     try {
-      const result = await apiPost('/users', form);
-      setMessage(result.message || 'העובד נוצר בהצלחה');
+      await apiPost('/admin/users', {
+        employeeCode: form.employeeCode,
+        fullName: form.fullName,
+        password: form.password,
+        role: form.role,
+        isActive: form.isActive
+      });
+
+      setMessage('העובד נוצר בהצלחה');
       setForm(defaultForm);
       await loadUsers();
     } catch (err) {
@@ -49,11 +57,11 @@ export default function AdminUsersPage() {
     setError('');
 
     try {
-      const result = await apiPut(`/users/${user.id}`, {
+      await apiPut(`/admin/users/${user.id}`, {
         isActive: !user.is_active
       });
 
-      setMessage(result.message || 'הסטטוס עודכן');
+      setMessage('הסטטוס עודכן');
       await loadUsers();
     } catch (err) {
       setError(err.message);
@@ -61,14 +69,15 @@ export default function AdminUsersPage() {
   }
 
   async function deleteUser(user) {
-    if (!window.confirm(`למחוק את ${user.full_name}?`)) return;
+    const ok = window.confirm(`למחוק את המשתמש ${user.full_name}?`);
+    if (!ok) return;
 
     setMessage('');
     setError('');
 
     try {
-      const result = await apiDelete(`/users/${user.id}`);
-      setMessage(result.message || 'המשתמש נמחק');
+      await apiDelete(`/admin/users/${user.id}`);
+      setMessage('המשתמש נמחק בהצלחה');
       await loadUsers();
     } catch (err) {
       setError(err.message);
@@ -100,69 +109,88 @@ export default function AdminUsersPage() {
                 <td>{user.employee_code}</td>
                 <td>{user.full_name}</td>
                 <td>{user.role}</td>
-                <td>{user.is_active ? 'פעיל' : 'לא פעיל'}</td>
+                <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
+                <td>
+                  <div className="action-buttons">
+                    <button
+                      className="secondary-btn small"
+                      onClick={() => toggleUser(user)}
+                      type="button"
+                    >
+                      {user.is_active ? 'חסום' : 'הפעל'}
+                    </button>
 
-                <td className="action-buttons">
-                  <button
-                    className="secondary-btn small"
-                    onClick={() => toggleUser(user)}
-                  >
-                    {user.is_active ? 'השבת' : 'הפעל'}
-                  </button>
-
-                  <button
-                    className="danger-btn small"
-                    onClick={() => deleteUser(user)}
-                  >
-                    מחק
-                  </button>
+                    <button
+                      className="danger-btn small"
+                      onClick={() => deleteUser(user)}
+                      type="button"
+                    >
+                      מחק
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
 
             {users.length === 0 && (
               <tr>
-                <td colSpan="5" className="empty-cell">
-                  אין עובדים להצגה
-                </td>
+                <td colSpan="5" className="empty-cell">אין עובדים להצגה</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
 
-      <div className="form-card">
+      <div className="table-card">
         <div className="section-title">הוספת עובד</div>
 
-        <form onSubmit={createUser} className="form-grid">
-          <input
-            placeholder="קוד עובד"
-            value={form.employeeCode}
-            onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
-          />
+        <form className="form-grid" onSubmit={createUser}>
+          <label>
+            <span>קוד עובד</span>
+            <input
+              value={form.employeeCode}
+              onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
+            />
+          </label>
 
-          <input
-            placeholder="שם מלא"
-            value={form.fullName}
-            onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-          />
+          <label>
+            <span>שם עובד</span>
+            <input
+              value={form.fullName}
+              onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+            />
+          </label>
 
-          <input
-            type="password"
-            placeholder="סיסמה"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-          />
+          <label>
+            <span>סיסמה</span>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+          </label>
 
-          <select
-            value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value })}
-          >
-            <option value="employee">עובד</option>
-            <option value="admin">מנהל</option>
-          </select>
+          <label>
+            <span>תפקיד</span>
+            <select
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+            >
+              <option value="employee">עובד</option>
+              <option value="admin">מנהל</option>
+            </select>
+          </label>
 
-          <button className="primary-btn">הוסף עובד</button>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.isActive}
+              onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+            />
+            <span>משתמש פעיל</span>
+          </label>
+
+          <button className="primary-btn" type="submit">שמור עובד</button>
         </form>
       </div>
     </div>
