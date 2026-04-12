@@ -121,8 +121,8 @@ export default function EmployeePage() {
           {error && <div className="alert error">{error}</div>}
 
           <div className="action-row">
-            <button className="primary-btn" disabled={loading} onClick={() => submitRecord('in')}>כניסה לעבודה</button>
-            <button className="secondary-btn" disabled={loading} onClick={() => submitRecord('out')}>יציאה מהעבודה</button>
+            <button className="btn-enter" disabled={loading} onClick={() => submitRecord('in')}>כניסה לעבודה</button>
+            <button className="btn-exit" disabled={loading} onClick={() => submitRecord('out')}>יציאה מהעבודה</button>
           </div>
         </div>
       </div>

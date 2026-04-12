@@ -9,7 +9,7 @@
   --text-main: #17365c;
   --text-soft: #5c7797;
   --white-text: #ffffff;
-  --primary: #14f31f;
+  --primary: #1976ff;
   --primary-2: #125dd0;
   --secondary: #eff5fd;
   --secondary-text: #1f446f;
@@ -288,7 +288,7 @@ textarea {
 .nav-btn {
   background: linear-gradient(180deg, var(--primary) 0%, var(--primary-2) 100%);
   color: #fff;
-  box-shadow: 0 10px 22px rgb(20, 236, 67);
+  box-shadow: 0 10px 22px rgba(21, 92, 206, 0.24);
 }
 
 .secondary-btn {
@@ -534,14 +534,12 @@ textarea {
 /* ===== USERS ACTION FIX ====== */
 /* ============================= */
 
-/* עמודת פעולות */
 .table-card td:last-child,
 .table-card th:last-child {
   min-width: 190px;
   width: 190px;
 }
 
-/* אזור כפתורים */
 .action-buttons {
   display: flex;
   gap: 8px;
@@ -549,13 +547,11 @@ textarea {
   justify-content: flex-start;
 }
 
-/* לא למתוח כפתורים */
 .action-buttons button {
   flex: 0 0 auto;
   min-width: 70px;
 }
 
-/* כפתור מחיקה */
 .danger-btn {
   background: linear-gradient(180deg, #ff5f5f 0%, #dc4343 100%);
   color: #fff;
@@ -575,3 +571,40 @@ textarea {
 .danger-btn:hover {
   transform: translateY(-1px);
 }
+
+/* ============================= */
+/* ===== EMPLOYEE BUTTONS ====== */
+/* ============================= */
+
+.btn-enter,
+.btn-exit {
+  border: none;
+  border-radius: 18px;
+  padding: 13px 18px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: .18s ease;
+  color: #fff;
+}
+
+.btn-enter {
+  background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+  box-shadow: 0 10px 22px rgba(34, 197, 94, 0.25);
+}
+
+.btn-exit {
+  background: linear-gradient(180deg, #ef4444 0%, #991b1b 100%);
+  box-shadow: 0 10px 22px rgba(220, 38, 38, 0.25);
+}
+
+.btn-enter:hover,
+.btn-exit:hover {
+  transform: translateY(-1px);
+}
+
+.btn-enter:disabled,
+.btn-exit:disabled {
+  opacity: .65;
+  cursor: not-allowed;
+}
+

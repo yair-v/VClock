@@ -1,6 +1,5 @@
-frontend / src / pages / AdminUsersPage.jsx
-import { useEffect, useState } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../services/api';
+import { useEffect, useMemo, useState } from 'react';
+import { apiDelete, apiGet, apiPost, apiPut } from '../services/api';
 
 const defaultForm = {
   employeeCode: '',
@@ -10,11 +9,22 @@ const defaultForm = {
   isActive: true
 };
 
+function getCurrentUser() {
+  try {
+    const raw = localStorage.getItem('vclock_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(defaultForm);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  const currentUser = useMemo(() => getCurrentUser(), []);
 
   async function loadUsers() {
     setError('');
@@ -120,13 +130,15 @@ export default function AdminUsersPage() {
                       {user.is_active ? 'חסום' : 'הפעל'}
                     </button>
 
-                    <button
-                      className="danger-btn small"
-                      onClick={() => deleteUser(user)}
-                      type="button"
-                    >
-                      מחק
-                    </button>
+                    {currentUser?.role === 'admin' && (
+                      <button
+                        className="danger-btn small"
+                        onClick={() => deleteUser(user)}
+                        type="button"
+                      >
+                        מחק
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
