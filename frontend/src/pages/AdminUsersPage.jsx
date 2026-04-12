@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, apiPut } from '../services/api';
+import { apiGet, apiPost, apiPut, apiDelete } from '../services/api';
 
 const defaultForm = {
   employeeCode: '',
@@ -18,7 +18,7 @@ export default function AdminUsersPage() {
   async function loadUsers() {
     setError('');
     try {
-      const data = await apiGet('/admin/users');
+      const data = await apiGet('/users');
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -35,14 +35,8 @@ export default function AdminUsersPage() {
     setError('');
 
     try {
-      await apiPost('/admin/users', {
-        employee_code: form.employeeCode,
-        full_name: form.fullName,
-        password: form.password,
-        role: form.role,
-        is_active: form.isActive
-      });
-      setMessage('העובד נוצר בהצלחה');
+      const result = await apiPost('/users', form);
+      setMessage(result.message || 'העובד נוצר בהצלחה');
       setForm(defaultForm);
       await loadUsers();
     } catch (err) {
@@ -55,8 +49,26 @@ export default function AdminUsersPage() {
     setError('');
 
     try {
-      await apiPut(`/admin/users/${user.id}`, { is_active: !user.is_active });
-      setMessage('הסטטוס עודכן');
+      const result = await apiPut(`/users/${user.id}`, {
+        isActive: !user.is_active
+      });
+
+      setMessage(result.message || 'הסטטוס עודכן');
+      await loadUsers();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteUser(user) {
+    if (!window.confirm(`למחוק את ${user.full_name}?`)) return;
+
+    setMessage('');
+    setError('');
+
+    try {
+      const result = await apiDelete(`/users/${user.id}`);
+      setMessage(result.message || 'המשתמש נמחק');
       await loadUsers();
     } catch (err) {
       setError(err.message);
@@ -78,62 +90,79 @@ export default function AdminUsersPage() {
               <th>שם</th>
               <th>תפקיד</th>
               <th>סטטוס</th>
-              <th>פעולה</th>
+              <th>פעולות</th>
             </tr>
           </thead>
+
           <tbody>
             {users.map((user) => (
               <tr key={user.id}>
                 <td>{user.employee_code}</td>
                 <td>{user.full_name}</td>
                 <td>{user.role}</td>
-                <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
-                <td>
-                  <button className="secondary-btn small" onClick={() => toggleUser(user)}>
-                    {user.is_active ? 'חסום' : 'הפעל'}
+                <td>{user.is_active ? 'פעיל' : 'לא פעיל'}</td>
+
+                <td className="action-buttons">
+                  <button
+                    className="secondary-btn small"
+                    onClick={() => toggleUser(user)}
+                  >
+                    {user.is_active ? 'השבת' : 'הפעל'}
+                  </button>
+
+                  <button
+                    className="danger-btn small"
+                    onClick={() => deleteUser(user)}
+                  >
+                    מחק
                   </button>
                 </td>
               </tr>
             ))}
+
             {users.length === 0 && (
-              <tr><td colSpan="5" className="empty-cell">אין עובדים להצגה</td></tr>
+              <tr>
+                <td colSpan="5" className="empty-cell">
+                  אין עובדים להצגה
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
       </div>
 
-      <div className="table-card">
+      <div className="form-card">
         <div className="section-title">הוספת עובד</div>
-        <form className="form-grid" onSubmit={createUser}>
-          <label>
-            <span>קוד עובד</span>
-            <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} />
-          </label>
 
-          <label>
-            <span>שם עובד</span>
-            <input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
-          </label>
+        <form onSubmit={createUser} className="form-grid">
+          <input
+            placeholder="קוד עובד"
+            value={form.employeeCode}
+            onChange={(e) => setForm({ ...form, employeeCode: e.target.value })}
+          />
 
-          <label>
-            <span>סיסמה</span>
-            <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          </label>
+          <input
+            placeholder="שם מלא"
+            value={form.fullName}
+            onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+          />
 
-          <label>
-            <span>תפקיד</span>
-            <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="employee">עובד</option>
-              <option value="admin">מנהל</option>
-            </select>
-          </label>
+          <input
+            type="password"
+            placeholder="סיסמה"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
 
-          <label className="checkbox-row">
-            <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
-            <span>משתמש פעיל</span>
-          </label>
+          <select
+            value={form.role}
+            onChange={(e) => setForm({ ...form, role: e.target.value })}
+          >
+            <option value="employee">עובד</option>
+            <option value="admin">מנהל</option>
+          </select>
 
-          <button className="primary-btn" type="submit">שמור עובד</button>
+          <button className="primary-btn">הוסף עובד</button>
         </form>
       </div>
     </div>

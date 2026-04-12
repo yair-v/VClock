@@ -66,11 +66,23 @@ export async function apiPut(path, body) {
 }
 
 export async function apiDelete(path) {
-  const response = await fetch(buildUrl(path), {
+  const token = localStorage.getItem('vclock_token');
+
+  const res = await fetch(`/api${path}`, {
     method: 'DELETE',
-    headers: getHeaders(false)
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    }
   });
-  return handleResponse(response);
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.message || 'Delete failed');
+  }
+
+  return data;
 }
 
 export async function exportExcel(path) {
