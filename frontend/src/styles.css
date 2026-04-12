@@ -9,7 +9,7 @@
   --text-main: #17365c;
   --text-soft: #5c7797;
   --white-text: #ffffff;
-  --primary: #1976ff;
+  --primary: #14f31f;
   --primary-2: #125dd0;
   --secondary: #eff5fd;
   --secondary-text: #1f446f;
@@ -530,27 +530,32 @@ textarea {
   }
 }
 
-/* ==== USERS ACTIONS - CLEAN FIX ==== */
+/* ============================= */
+/* ===== USERS ACTION FIX ====== */
+/* ============================= */
 
+/* עמודת פעולות */
 .table-card td:last-child,
 .table-card th:last-child {
   min-width: 190px;
   width: 190px;
 }
 
+/* אזור כפתורים */
 .action-buttons {
   display: flex;
   gap: 8px;
   align-items: center;
   justify-content: flex-start;
-  flex-wrap: nowrap;
 }
 
+/* לא למתוח כפתורים */
 .action-buttons button {
   flex: 0 0 auto;
-  min-width: 72px;
+  min-width: 70px;
 }
 
+/* כפתור מחיקה */
 .danger-btn {
   background: linear-gradient(180deg, #ff5f5f 0%, #dc4343 100%);
   color: #fff;
