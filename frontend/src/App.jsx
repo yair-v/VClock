@@ -6,10 +6,17 @@ import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminReportsPage from './pages/AdminReportsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminMonthlyPage from './pages/AdminMonthlyPage';
+import BrandLogo from './components/BrandLogo';
 
 function getCurrentUser() {
   const raw = localStorage.getItem('vclock_user');
-  return raw ? JSON.parse(raw) : null;
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 function ProtectedRoute({ children, adminOnly = false }) {
@@ -40,9 +47,14 @@ function Layout({ children }) {
     <div className="app-shell">
       {user && (
         <header className="topbar">
-          <div>
-            <div className="brand">VClock</div>
-            <div className="sub-brand">{user.fullName} | {user.employeeCode}</div>
+          <div className="brand-cluster">
+            <div className="brand-logo-box">
+              <BrandLogo size={56} />
+            </div>
+            <div>
+              <div className="brand">VClock</div>
+              <div className="sub-brand">{user.fullName} | {user.employeeCode}</div>
+            </div>
           </div>
           <div className="topbar-actions">
             {user.role === 'employee' && (

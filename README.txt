@@ -1,29 +1,36 @@
-VClock Stable
+VClock - Render Ready
 
-זו גרסה יציבה יותר להפעלה מקומית ב-Windows.
-במקום SQLite היא משתמשת בקובץ נתונים מקומי:
-backend\data\db.json
+מה עודכן:
+- לוגו אמיתי נוסף למערכת ולמסך ההתחברות
+- ה-frontend נבנה לתוך backend/public
+- השרת מגיש את מסך ה-React ואת ה-API מאותו דומיין
+- הקריאות ב-frontend תואמו ל-endpoints האמיתיים של השרת
+- הוגדר Vite Proxy לפיתוח מקומי
 
-למה זה עדיף כרגע:
-- פחות תקלות npm install
-- אין רכיבי native שמקשים על Windows
-- המערכת נשמרת לקובץ קבוע
-- נוח מאוד להתחלה ולבדיקות
-
-התחברות:
+התחברות לדמו:
 מנהל: admin / 1234
 עובד: 1001 / 1234
 
-הפעלה:
+הפעלה מקומית ב-Windows:
 1. חלץ את הקובץ
 2. לחץ פעמיים על Start-VClock.bat
-3. המערכת תיפתח ב-http://localhost:3001
+3. הדפדפן ייפתח ב-http://localhost:3000
 
 עצירה:
 - Stop-VClock.bat
-או
-- כפתור סגירה מלאה כמנהל
 
-אם עדיין לא נפתח:
-- בדוק את חלון VClock Server
-- בדוק שאין משהו אחר על 3001
+פיתוח ידני:
+1. frontend\npm install
+2. frontend\npm run build
+3. backend\npm install
+4. backend\npm start
+
+Render:
+- הפרויקט כולל render.yaml
+- יש ליצור Web Service מהריפו
+- Build Command ו-Start Command מוגדרים כבר בקובץ
+
+משתני סביבה מומלצים:
+- PORT=3000
+- JWT_SECRET=change-me
+- DATABASE_URL=postgres-connection-string

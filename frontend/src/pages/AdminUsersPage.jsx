@@ -6,7 +6,7 @@ const defaultForm = {
   fullName: '',
   password: '',
   role: 'employee',
-  isActive: true,
+  isActive: true
 };
 
 export default function AdminUsersPage() {
@@ -16,9 +16,11 @@ export default function AdminUsersPage() {
   const [error, setError] = useState('');
 
   async function loadUsers() {
+    setError('');
+
     try {
-      const data = await apiGet('/users');
-      setUsers(data);
+      const data = await apiGet('/api/admin/users');
+      setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
     }
@@ -32,9 +34,16 @@ export default function AdminUsersPage() {
     e.preventDefault();
     setMessage('');
     setError('');
+
     try {
-      const result = await apiPost('/users', form);
-      setMessage(result.message);
+      await apiPost('/api/admin/users', {
+        employee_code: form.employeeCode,
+        full_name: form.fullName,
+        password: form.password,
+        role: form.role,
+        is_active: form.isActive
+      });
+      setMessage('העובד נוצר בהצלחה');
       setForm(defaultForm);
       await loadUsers();
     } catch (err) {
@@ -45,9 +54,10 @@ export default function AdminUsersPage() {
   async function toggleUser(user) {
     setMessage('');
     setError('');
+
     try {
-      const result = await apiPut(`/users/${user.id}`, { isActive: !user.is_active });
-      setMessage(result.message);
+      await apiPut(`/api/admin/users/${user.id}`, { is_active: !Boolean(user.is_active) });
+      setMessage('הסטטוס עודכן');
       await loadUsers();
     } catch (err) {
       setError(err.message);
@@ -55,11 +65,12 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="card-page users-layout">
+    <div className="users-grid">
       <div className="table-card">
         <div className="section-title">ניהול עובדים</div>
         {message && <div className="alert success">{message}</div>}
         {error && <div className="alert error">{error}</div>}
+
         <table>
           <thead>
             <tr>
@@ -84,6 +95,9 @@ export default function AdminUsersPage() {
                 </td>
               </tr>
             ))}
+            {users.length === 0 && (
+              <tr><td colSpan="5" className="empty-cell">אין משתמשים להצגה</td></tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -95,14 +109,17 @@ export default function AdminUsersPage() {
             <span>קוד עובד</span>
             <input value={form.employeeCode} onChange={(e) => setForm({ ...form, employeeCode: e.target.value })} />
           </label>
+
           <label>
             <span>שם עובד</span>
             <input value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
           </label>
+
           <label>
             <span>סיסמה</span>
             <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
           </label>
+
           <label>
             <span>תפקיד</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
@@ -110,10 +127,12 @@ export default function AdminUsersPage() {
               <option value="admin">admin</option>
             </select>
           </label>
+
           <label className="checkbox-row">
             <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
             <span>משתמש פעיל</span>
           </label>
+
           <button className="primary-btn">שמור עובד</button>
         </form>
       </div>

@@ -12,9 +12,11 @@ export default function AdminMonthlyPage() {
   const [error, setError] = useState('');
 
   async function loadData(selectedMonth = month) {
+    setError('');
+
     try {
-      const data = await apiGet(`/admin/monthly-report?month=${selectedMonth}`);
-      setRows(data);
+      const data = await apiGet(`/api/admin/monthly-summary?month=${selectedMonth}`);
+      setRows(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
     }
@@ -25,7 +27,7 @@ export default function AdminMonthlyPage() {
   }, []);
 
   return (
-    <div className="card-page">
+    <div className="content-card">
       <div className="section-header">
         <h2>דוח שעות חודשי</h2>
         <div className="inline-actions">
@@ -45,22 +47,24 @@ export default function AdminMonthlyPage() {
               <th>קוד</th>
               <th>כניסה ראשונה</th>
               <th>יציאה אחרונה</th>
+              <th>סוגי יום</th>
               <th>סה"כ שעות</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
-              <tr key={`${row.userId}_${row.date}_${index}`}>
-                <td>{row.date}</td>
-                <td>{row.fullName}</td>
-                <td>{row.employeeCode}</td>
-                <td>{row.firstIn ? new Date(row.firstIn).toLocaleTimeString('he-IL') : '-'}</td>
-                <td>{row.lastOut ? new Date(row.lastOut).toLocaleTimeString('he-IL') : '-'}</td>
-                <td>{row.totalHours}</td>
+              <tr key={`${row.employee_code}_${row.work_date}_${index}`}>
+                <td>{row.work_date}</td>
+                <td>{row.full_name}</td>
+                <td>{row.employee_code}</td>
+                <td>{row.first_in ? new Date(row.first_in).toLocaleTimeString('he-IL') : '-'}</td>
+                <td>{row.last_out ? new Date(row.last_out).toLocaleTimeString('he-IL') : '-'}</td>
+                <td>{row.work_day_types || '-'}</td>
+                <td>{row.totalHours || '-'}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="6" className="empty-cell">אין נתונים לחודש הזה</td></tr>
+              <tr><td colSpan="7" className="empty-cell">אין נתונים לחודש הזה</td></tr>
             )}
           </tbody>
         </table>
