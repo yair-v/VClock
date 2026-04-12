@@ -7,9 +7,8 @@ export default function AdminDashboardPage() {
 
   async function loadData() {
     setError('');
-
     try {
-      const result = await apiGet('/api/admin/dashboard');
+      const result = await apiGet('/admin/dashboard');
       setData(result);
     } catch (err) {
       setError(err.message);
@@ -21,7 +20,7 @@ export default function AdminDashboardPage() {
   }, []);
 
   return (
-    <div className="content-card">
+    <div className="card-page">
       <div className="section-header">
         <h2>דשבורד מנהל</h2>
         <button className="secondary-btn small" onClick={loadData}>רענן</button>
@@ -41,8 +40,8 @@ export default function AdminDashboardPage() {
         <table>
           <thead>
             <tr>
-              <th>שם עובד</th>
-              <th>קוד עובד</th>
+              <th>עובד</th>
+              <th>קוד</th>
             </tr>
           </thead>
           <tbody>

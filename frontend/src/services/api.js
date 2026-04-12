@@ -1,7 +1,12 @@
-const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
+const API_PREFIX = '/api';
 
 function getToken() {
   return localStorage.getItem('vclock_token');
+}
+
+function buildUrl(path) {
+  const normalized = String(path || '').startsWith('/') ? path : `/${path}`;
+  return `${API_PREFIX}${normalized}`;
 }
 
 function getHeaders(isJson = true) {
@@ -14,22 +19,15 @@ function getHeaders(isJson = true) {
   return headers;
 }
 
-function buildUrl(path) {
-  const normalizedPath = String(path || '').startsWith('/') ? path : `/${path}`;
-  return `${API_BASE}${normalizedPath}`;
-}
-
 async function handleResponse(response) {
   if (!response.ok) {
     let message = 'Request failed';
-
     try {
       const data = await response.json();
-      message = data.message || data.error || message;
+      message = data.error || data.message || message;
     } catch {
-      // ignore parse errors
+      // ignore
     }
-
     throw new Error(message);
   }
 
@@ -46,7 +44,6 @@ export async function apiGet(path) {
     method: 'GET',
     headers: getHeaders(false)
   });
-
   return handleResponse(response);
 }
 
@@ -56,7 +53,6 @@ export async function apiPost(path, body) {
     headers: getHeaders(true),
     body: JSON.stringify(body)
   });
-
   return handleResponse(response);
 }
 
@@ -66,21 +62,28 @@ export async function apiPut(path, body) {
     headers: getHeaders(true),
     body: JSON.stringify(body)
   });
-
   return handleResponse(response);
 }
 
-export async function exportExcel(path, filename = 'vclock-export.xlsx') {
+export async function apiDelete(path) {
+  const response = await fetch(buildUrl(path), {
+    method: 'DELETE',
+    headers: getHeaders(false)
+  });
+  return handleResponse(response);
+}
+
+export async function exportExcel(path) {
   const response = await fetch(buildUrl(path), {
     method: 'GET',
     headers: getHeaders(false)
   });
 
   const blob = await handleResponse(response);
-  const downloadUrl = window.URL.createObjectURL(blob);
+  const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = downloadUrl;
-  a.download = filename;
+  a.href = url;
+  a.download = 'vclock-export.xlsx';
   a.click();
-  window.URL.revokeObjectURL(downloadUrl);
+  window.URL.revokeObjectURL(url);
 }

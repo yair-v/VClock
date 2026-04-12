@@ -17,9 +17,8 @@ export default function AdminUsersPage() {
 
   async function loadUsers() {
     setError('');
-
     try {
-      const data = await apiGet('/api/admin/users');
+      const data = await apiGet('/admin/users');
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -36,7 +35,7 @@ export default function AdminUsersPage() {
     setError('');
 
     try {
-      await apiPost('/api/admin/users', {
+      await apiPost('/admin/users', {
         employee_code: form.employeeCode,
         full_name: form.fullName,
         password: form.password,
@@ -56,7 +55,7 @@ export default function AdminUsersPage() {
     setError('');
 
     try {
-      await apiPut(`/api/admin/users/${user.id}`, { is_active: !Boolean(user.is_active) });
+      await apiPut(`/admin/users/${user.id}`, { is_active: !user.is_active });
       setMessage('הסטטוס עודכן');
       await loadUsers();
     } catch (err) {
@@ -65,9 +64,10 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="users-grid">
+    <div className="card-page users-layout">
       <div className="table-card">
         <div className="section-title">ניהול עובדים</div>
+
         {message && <div className="alert success">{message}</div>}
         {error && <div className="alert error">{error}</div>}
 
@@ -96,7 +96,7 @@ export default function AdminUsersPage() {
               </tr>
             ))}
             {users.length === 0 && (
-              <tr><td colSpan="5" className="empty-cell">אין משתמשים להצגה</td></tr>
+              <tr><td colSpan="5" className="empty-cell">אין עובדים להצגה</td></tr>
             )}
           </tbody>
         </table>
@@ -123,8 +123,8 @@ export default function AdminUsersPage() {
           <label>
             <span>תפקיד</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              <option value="employee">employee</option>
-              <option value="admin">admin</option>
+              <option value="employee">עובד</option>
+              <option value="admin">מנהל</option>
             </select>
           </label>
 
@@ -133,7 +133,7 @@ export default function AdminUsersPage() {
             <span>משתמש פעיל</span>
           </label>
 
-          <button className="primary-btn">שמור עובד</button>
+          <button className="primary-btn" type="submit">שמור עובד</button>
         </form>
       </div>
     </div>

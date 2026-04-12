@@ -1,17 +1,3 @@
-import React from 'react';
-
-export default function BrandLogo({ size = 56, className = '' }) {
-  return (
-    <img
-      src="/logo.png"
-      alt="Yair Vahaba Logo"
-      className={className}
-      style={{
-        width: size,
-        height: size,
-        objectFit: 'contain',
-        display: 'block'
-      }}
-    />
-  );
+export default function BrandLogo({ className = '', alt = 'VClock logo' }) {
+  return <img src="/logo.png" alt={alt} className={className} />;
 }

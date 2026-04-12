@@ -9,9 +9,8 @@ export default function MyReportsPage() {
   async function loadRows() {
     setLoading(true);
     setError('');
-
     try {
-      const data = await apiGet('/api/my-records');
+      const data = await apiGet('/my-records');
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -25,7 +24,7 @@ export default function MyReportsPage() {
   }, []);
 
   return (
-    <div className="content-card">
+    <div className="card-page">
       <div className="section-header">
         <h2>הדיווחים שלי</h2>
         <button className="secondary-btn small" onClick={loadRows}>רענן</button>
@@ -42,7 +41,6 @@ export default function MyReportsPage() {
               <th>סוג</th>
               <th>סוג יום</th>
               <th>הערה</th>
-              <th>אישור</th>
             </tr>
           </thead>
           <tbody>
@@ -50,13 +48,12 @@ export default function MyReportsPage() {
               <tr key={row.id}>
                 <td>{new Date(row.record_time).toLocaleString('he-IL')}</td>
                 <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                <td>{row.work_day_type || '-'}</td>
+                <td>{row.work_day_type}</td>
                 <td>{row.note || '-'}</td>
-                <td>{row.approval_status || '-'}</td>
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan="5" className="empty-cell">אין דיווחים</td></tr>
+              <tr><td colSpan="4" className="empty-cell">אין דיווחים</td></tr>
             )}
           </tbody>
         </table>

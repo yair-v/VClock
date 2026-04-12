@@ -4,11 +4,112 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VClock</title>
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <script type="module" crossorigin src="/assets/index-BCoIx_SU.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DU7r05we.css">
+    <style>
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        font-family: Arial, Helvetica, sans-serif;
+        background: linear-gradient(180deg, #06152f 0%, #0d2f66 48%, #1b67cb 100%);
+        direction: rtl;
+      }
+      body:not(.app-ready) #root {
+        opacity: 0;
+      }
+      #root {
+        min-height: 100vh;
+        transition: opacity .35s ease;
+      }
+      .static-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(circle at top right, rgba(255,255,255,.10), transparent 20%),
+          radial-gradient(circle at bottom left, rgba(255,255,255,.08), transparent 24%),
+          linear-gradient(180deg, #06152f 0%, #0d2f66 48%, #1b67cb 100%);
+        transition: opacity .45s ease, visibility .45s ease;
+      }
+      .static-splash.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .static-splash-card {
+        width: min(94vw, 520px);
+        padding: 28px 24px;
+        border-radius: 28px;
+        background: rgba(255,255,255,.12);
+        border: 1px solid rgba(255,255,255,.18);
+        backdrop-filter: blur(12px);
+        box-shadow: 0 24px 60px rgba(4, 15, 35, .35);
+        text-align: center;
+        color: #fff;
+      }
+      .static-splash-logo {
+        width: 150px;
+        max-width: 38vw;
+        display: block;
+        margin: 0 auto 18px;
+        filter: drop-shadow(0 14px 32px rgba(0,0,0,.35));
+      }
+      .static-splash-title {
+        font-size: 34px;
+        font-weight: 900;
+        margin-bottom: 10px;
+        letter-spacing: .4px;
+      }
+      .static-splash-subtitle {
+        font-size: 17px;
+        opacity: .94;
+        margin-bottom: 18px;
+      }
+      .static-splash-loader {
+        width: 100%;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,.18);
+        overflow: hidden;
+      }
+      .static-splash-loader::after {
+        content: '';
+        display: block;
+        width: 38%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #ffffff 0%, #6ec0ff 100%);
+        animation: splashMove 1.2s linear infinite;
+      }
+      @keyframes splashMove {
+        0% { transform: translateX(230%); }
+        100% { transform: translateX(-230%); }
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-blUA701-.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-kXxdSXFM.css">
   </head>
   <body>
+    <div id="static-splash" class="static-splash">
+      <div class="static-splash-card">
+        <img class="static-splash-logo" src="/logo.png" alt="VClock logo" />
+        <div class="static-splash-title">VClock</div>
+        <div class="static-splash-subtitle">טוען נתונים...</div>
+        <div class="static-splash-loader"></div>
+      </div>
+    </div>
+
     <div id="root"></div>
+    <script>
+      window.addEventListener('vclock-app-ready', function () {
+        document.body.classList.add('app-ready');
+        var splash = document.getElementById('static-splash');
+        if (splash) splash.classList.add('hidden');
+      });
+      setTimeout(function () {
+        document.body.classList.add('app-ready');
+      }, 6000);
+    </script>
   </body>
 </html>

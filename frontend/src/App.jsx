@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes, Link, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import EmployeePage from './pages/EmployeePage';
 import MyReportsPage from './pages/MyReportsPage';
@@ -8,12 +9,21 @@ import AdminUsersPage from './pages/AdminUsersPage';
 import AdminMonthlyPage from './pages/AdminMonthlyPage';
 import BrandLogo from './components/BrandLogo';
 
+function normalizeUser(user) {
+  if (!user) return null;
+  return {
+    ...user,
+    fullName: user.fullName || user.full_name || '',
+    employeeCode: user.employeeCode || user.employee_code || ''
+  };
+}
+
 function getCurrentUser() {
   const raw = localStorage.getItem('vclock_user');
   if (!raw) return null;
 
   try {
-    return JSON.parse(raw);
+    return normalizeUser(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -36,6 +46,8 @@ function ProtectedRoute({ children, adminOnly = false }) {
 function Layout({ children }) {
   const user = getCurrentUser();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isLoginPage = location.pathname === '/';
 
   function logout() {
     localStorage.removeItem('vclock_token');
@@ -44,18 +56,24 @@ function Layout({ children }) {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${user ? 'app-shell-auth' : 'app-shell-guest'}`}>
+      <div className={`screen-brand-banner ${isLoginPage ? 'is-login' : ''}`}>
+        <div className="screen-brand-inner">
+          <BrandLogo className="screen-brand-logo" />
+          <div className="screen-brand-text">
+            <div className="screen-brand-title">VClock</div>
+            <div className="screen-brand-subtitle">מערכת שעון נוכחות</div>
+          </div>
+        </div>
+      </div>
+
       {user && (
         <header className="topbar">
-          <div className="brand-cluster">
-            <div className="brand-logo-box">
-              <BrandLogo size={56} />
-            </div>
-            <div>
-              <div className="brand">VClock</div>
-              <div className="sub-brand">{user.fullName} | {user.employeeCode}</div>
-            </div>
+          <div>
+            <div className="brand">VClock</div>
+            <div className="sub-brand">{user.fullName} | {user.employeeCode}</div>
           </div>
+
           <div className="topbar-actions">
             {user.role === 'employee' && (
               <>
@@ -63,6 +81,7 @@ function Layout({ children }) {
                 <Link className="nav-btn" to="/my-reports">הדיווחים שלי</Link>
               </>
             )}
+
             {user.role === 'admin' && (
               <>
                 <Link className="nav-btn" to="/admin/dashboard">דשבורד</Link>
@@ -71,16 +90,26 @@ function Layout({ children }) {
                 <Link className="nav-btn" to="/admin/users">משתמשים</Link>
               </>
             )}
+
             <button className="nav-btn danger" onClick={logout}>התנתק</button>
           </div>
         </header>
       )}
+
       <main className="page-wrap">{children}</main>
     </div>
   );
 }
 
 export default function App() {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(new Event('vclock-app-ready'));
+    }, 900);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <Layout>
       <Routes>

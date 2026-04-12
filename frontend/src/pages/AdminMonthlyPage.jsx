@@ -13,9 +13,8 @@ export default function AdminMonthlyPage() {
 
   async function loadData(selectedMonth = month) {
     setError('');
-
     try {
-      const data = await apiGet(`/api/admin/monthly-summary?month=${selectedMonth}`);
+      const data = await apiGet(`/admin/monthly-summary?month=${selectedMonth}`);
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -27,7 +26,7 @@ export default function AdminMonthlyPage() {
   }, []);
 
   return (
-    <div className="content-card">
+    <div className="card-page">
       <div className="section-header">
         <h2>דוח שעות חודשי</h2>
         <div className="inline-actions">
@@ -47,7 +46,6 @@ export default function AdminMonthlyPage() {
               <th>קוד</th>
               <th>כניסה ראשונה</th>
               <th>יציאה אחרונה</th>
-              <th>סוגי יום</th>
               <th>סה"כ שעות</th>
             </tr>
           </thead>
@@ -59,12 +57,11 @@ export default function AdminMonthlyPage() {
                 <td>{row.employee_code}</td>
                 <td>{row.first_in ? new Date(row.first_in).toLocaleTimeString('he-IL') : '-'}</td>
                 <td>{row.last_out ? new Date(row.last_out).toLocaleTimeString('he-IL') : '-'}</td>
-                <td>{row.work_day_types || '-'}</td>
                 <td>{row.totalHours || '-'}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="7" className="empty-cell">אין נתונים לחודש הזה</td></tr>
+              <tr><td colSpan="6" className="empty-cell">אין נתונים לחודש הזה</td></tr>
             )}
           </tbody>
         </table>
