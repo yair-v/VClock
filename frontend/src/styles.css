@@ -71,7 +71,7 @@ textarea {
 }
 
 .app-shell-auth {
-  padding-top: 178px;
+  padding-top: 210px;
 }
 
 .screen-brand-banner {
@@ -530,13 +530,25 @@ textarea {
   }
 }
 
-/* === ACTION BUTTONS FIX === */
+/* ==== USERS ACTIONS - CLEAN FIX ==== */
+
+.table-card td:last-child,
+.table-card th:last-child {
+  min-width: 190px;
+  width: 190px;
+}
 
 .action-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.action-buttons button {
+  flex: 0 0 auto;
+  min-width: 72px;
 }
 
 .danger-btn {
@@ -544,7 +556,7 @@ textarea {
   color: #fff;
   border: none;
   border-radius: 14px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   font-weight: 800;
   cursor: pointer;
   box-shadow: 0 10px 20px rgba(220, 67, 67, 0.25);
