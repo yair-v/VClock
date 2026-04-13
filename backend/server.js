@@ -122,6 +122,56 @@ function getDateStringFromValue(value) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+
+function getCurrentWorkdayDateString() {
+  const now = getNowInIsrael();
+  const currentDate = new Date(Date.UTC(now.year, now.month - 1, now.day));
+
+  if (now.hour < 3) {
+    currentDate.setUTCDate(currentDate.getUTCDate() - 1);
+  }
+
+  const year = currentDate.getUTCFullYear();
+  const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(currentDate.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function resetClosedDayIfNeeded(user) {
+  if (!user || !user.day_closed) {
+    return user;
+  }
+
+  const lastRes = await query(
+    `SELECT record_time, record_type
+     FROM attendance_records
+     WHERE user_id = $1
+     ORDER BY record_time DESC, id DESC
+     LIMIT 1`,
+    [user.id]
+  );
+
+  const lastRecord = lastRes.rows[0];
+  const currentWorkdayDate = getCurrentWorkdayDateString();
+  const lastRecordDate = getDateStringFromValue(lastRecord?.record_time);
+
+  if (!lastRecord || lastRecord.record_type !== 'out' || lastRecordDate !== currentWorkdayDate) {
+    await query(
+      `UPDATE users
+       SET day_closed = 0
+       WHERE id = $1`,
+      [user.id]
+    );
+
+    return {
+      ...user,
+      day_closed: 0
+    };
+  }
+
+  return user;
+}
+
 function getWeekDayNameFromDateString(dateString) {
   const [year, month, day] = dateString.split('-').map(Number);
   const date = new Date(Date.UTC(year, month - 1, day));
@@ -486,10 +536,12 @@ app.get('/api/my-status', authRequired, async (req, res) => {
   try {
     await ensureAutoCloseSpecialRecords();
 
-    const user = await resolveUserSchedule(req.user.id);
+    let user = await resolveUserSchedule(req.user.id);
     if (!user) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
+
+    user = await resetClosedDayIfNeeded(user);
 
     const lastRes = await query(
       `SELECT *
@@ -623,11 +675,13 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'יש לבחור סוג יום עבודה' });
     }
 
-    const user = await resolveUserSchedule(req.user.id);
+    let user = await resolveUserSchedule(req.user.id);
 
     if (!user) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
+
+    user = await resetClosedDayIfNeeded(user);
 
     const lastRes = await query(
       `SELECT *
