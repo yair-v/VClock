@@ -1,18 +1,20 @@
-
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete } from '../services/api';
+import { apiDelete, apiGet, apiPost, apiPut } from '../services/api';
 
 const defaultForm = {
   employeeCode: '',
   fullName: '',
   password: '',
   role: 'employee',
-  isActive: true
+  isActive: true,
+  department_id: ''
 };
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [form, setForm] = useState(defaultForm);
+  const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -26,30 +28,67 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function loadDepartments() {
+    try {
+      const data = await apiGet('/admin/departments');
+      setDepartments(Array.isArray(data) ? data : []);
+    } catch {
+      setDepartments([]);
+    }
+  }
+
   useEffect(() => {
     loadUsers();
+    loadDepartments();
   }, []);
 
-  async function createUser(e) {
+  function resetForm() {
+    setForm(defaultForm);
+    setEditingId(null);
+  }
+
+  async function saveUser(e) {
     e.preventDefault();
     setMessage('');
     setError('');
 
     try {
-      await apiPost('/admin/users', {
-        employeeCode: form.employeeCode,
-        fullName: form.fullName,
+      const payload = {
+        employee_code: form.employeeCode,
+        full_name: form.fullName,
         password: form.password,
         role: form.role,
-        isActive: form.isActive
-      });
+        is_active: form.isActive,
+        department_id: form.department_id ? Number(form.department_id) : null
+      };
 
-      setMessage('העובד נוצר בהצלחה');
-      setForm(defaultForm);
+      if (editingId) {
+        await apiPut(`/admin/users/${editingId}`, payload);
+        setMessage('המשתמש עודכן בהצלחה');
+      } else {
+        await apiPost('/admin/users', payload);
+        setMessage('המשתמש נוצר בהצלחה');
+      }
+
+      resetForm();
       await loadUsers();
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  function startEdit(user) {
+    setEditingId(user.id);
+    setForm({
+      employeeCode: user.employee_code || '',
+      fullName: user.full_name || '',
+      password: '',
+      role: user.role || 'employee',
+      isActive: Boolean(user.is_active),
+      department_id: user.department_id || ''
+    });
+    setMessage('');
+    setError('');
   }
 
   async function toggleUser(user) {
@@ -58,7 +97,7 @@ export default function AdminUsersPage() {
 
     try {
       await apiPut(`/admin/users/${user.id}`, {
-        isActive: !user.is_active
+        is_active: !user.is_active
       });
 
       setMessage('הסטטוס עודכן');
@@ -98,6 +137,7 @@ export default function AdminUsersPage() {
               <th>קוד</th>
               <th>שם</th>
               <th>תפקיד</th>
+              <th>מחלקה</th>
               <th>סטטוס</th>
               <th>פעולות</th>
             </tr>
@@ -109,9 +149,18 @@ export default function AdminUsersPage() {
                 <td>{user.employee_code}</td>
                 <td>{user.full_name}</td>
                 <td>{user.role}</td>
+                <td>{user.department_name || '-'}</td>
                 <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
                 <td>
                   <div className="action-buttons">
+                    <button
+                      className="secondary-btn small"
+                      onClick={() => startEdit(user)}
+                      type="button"
+                    >
+                      ערוך
+                    </button>
+
                     <button
                       className="secondary-btn small"
                       onClick={() => toggleUser(user)}
@@ -134,7 +183,7 @@ export default function AdminUsersPage() {
 
             {users.length === 0 && (
               <tr>
-                <td colSpan="5" className="empty-cell">אין עובדים להצגה</td>
+                <td colSpan="6" className="empty-cell">אין עובדים להצגה</td>
               </tr>
             )}
           </tbody>
@@ -142,9 +191,11 @@ export default function AdminUsersPage() {
       </div>
 
       <div className="table-card">
-        <div className="section-title">הוספת עובד</div>
+        <div className="section-title">
+          {editingId ? 'עריכת עובד' : 'הוספת עובד'}
+        </div>
 
-        <form className="form-grid" onSubmit={createUser}>
+        <form className="form-grid" onSubmit={saveUser}>
           <label>
             <span>קוד עובד</span>
             <input
@@ -167,6 +218,7 @@ export default function AdminUsersPage() {
               type="password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder={editingId ? 'השאר ריק כדי לא לשנות' : ''}
             />
           </label>
 
@@ -181,6 +233,23 @@ export default function AdminUsersPage() {
             </select>
           </label>
 
+          <label>
+            <span>מחלקה</span>
+            <select
+              value={form.department_id}
+              onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+            >
+              <option value="">ללא מחלקה</option>
+              {departments
+                .filter((dep) => dep.is_active)
+                .map((dep) => (
+                  <option key={dep.id} value={dep.id}>
+                    {dep.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+
           <label className="checkbox-row">
             <input
               type="checkbox"
@@ -190,7 +259,21 @@ export default function AdminUsersPage() {
             <span>משתמש פעיל</span>
           </label>
 
-          <button className="primary-btn" type="submit">שמור עובד</button>
+          <div className="action-buttons">
+            <button className="primary-btn" type="submit">
+              {editingId ? 'שמור שינויים' : 'שמור עובד'}
+            </button>
+
+            {editingId && (
+              <button
+                className="secondary-btn"
+                type="button"
+                onClick={resetForm}
+              >
+                בטל
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </div>

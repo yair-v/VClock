@@ -353,6 +353,21 @@ async function initDb() {
     ON CONFLICT (id) DO UPDATE SET
       work_day_types = EXCLUDED.work_day_types
   `);
+  await query(`
+      CREATE TABLE IF NOT EXISTS departments (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT DEFAULT '',
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+  // 🔥 שדה למחלקה אצל עובדים
+  await query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS department_id INTEGER
+    `);
 
   await query(`
     UPDATE users

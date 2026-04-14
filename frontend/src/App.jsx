@@ -7,6 +7,7 @@ import AdminDashboardPage from './pages/AdminDashboardPage';
 import AdminReportsPage from './pages/AdminReportsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminMonthlyPage from './pages/AdminMonthlyPage';
+import AdminDepartmentsPage from './pages/AdminDepartmentsPage';
 import TwoFactorPage from './pages/TwoFactorPage';
 import TwoFactorSettingsPage from './pages/TwoFactorSettingsPage';
 import BrandLogo from './components/BrandLogo';
@@ -49,12 +50,13 @@ function Layout({ children }) {
   const user = getCurrentUser();
   const navigate = useNavigate();
   const location = useLocation();
-  const isLoginPage = location.pathname === '/' || location.pathname === '/two-factor';
+  const isLoginPage = location.pathname === '/';
 
   function logout() {
     localStorage.removeItem('vclock_token');
     localStorage.removeItem('vclock_user');
-    sessionStorage.removeItem('vclock_2fa_pending');
+    localStorage.removeItem('vclock_2fa_temp_token');
+    localStorage.removeItem('vclock_2fa_user');
     navigate('/');
   }
 
@@ -82,6 +84,7 @@ function Layout({ children }) {
               <>
                 <Link className="nav-btn" to="/employee">דיווח</Link>
                 <Link className="nav-btn" to="/my-reports">הדיווחים שלי</Link>
+                <Link className="nav-btn" to="/security">אבטחה</Link>
               </>
             )}
 
@@ -91,10 +94,11 @@ function Layout({ children }) {
                 <Link className="nav-btn" to="/admin/reports">דיווחים</Link>
                 <Link className="nav-btn" to="/admin/monthly">חודשי</Link>
                 <Link className="nav-btn" to="/admin/users">משתמשים</Link>
+                <Link className="nav-btn" to="/admin/departments">מחלקות</Link>
+                <Link className="nav-btn" to="/security">אבטחה</Link>
               </>
             )}
 
-            <Link className="nav-btn" to="/security/two-factor">אבטחה</Link>
             <button className="nav-btn danger" onClick={logout}>התנתק</button>
           </div>
         </header>
@@ -118,14 +122,15 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<LoginPage />} />
-        <Route path="/two-factor" element={<TwoFactorPage />} />
+        <Route path="/2fa" element={<TwoFactorPage />} />
         <Route path="/employee" element={<ProtectedRoute><EmployeePage /></ProtectedRoute>} />
         <Route path="/my-reports" element={<ProtectedRoute><MyReportsPage /></ProtectedRoute>} />
-        <Route path="/security/two-factor" element={<ProtectedRoute><TwoFactorSettingsPage /></ProtectedRoute>} />
+        <Route path="/security" element={<ProtectedRoute><TwoFactorSettingsPage /></ProtectedRoute>} />
         <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboardPage /></ProtectedRoute>} />
         <Route path="/admin/reports" element={<ProtectedRoute adminOnly><AdminReportsPage /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsersPage /></ProtectedRoute>} />
         <Route path="/admin/monthly" element={<ProtectedRoute adminOnly><AdminMonthlyPage /></ProtectedRoute>} />
+        <Route path="/admin/departments" element={<ProtectedRoute adminOnly><AdminDepartmentsPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
