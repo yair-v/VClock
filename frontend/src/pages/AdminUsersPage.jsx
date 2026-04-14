@@ -97,7 +97,11 @@ export default function AdminUsersPage() {
 
     try {
       await apiPut(`/admin/users/${user.id}`, {
-        is_active: !user.is_active
+        employee_code: user.employee_code,
+        full_name: user.full_name,
+        role: user.role,
+        is_active: !user.is_active,
+        department_id: user.department_id || null
       });
 
       setMessage('הסטטוס עודכן');

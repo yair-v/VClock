@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 const express = require('express');
 const app = express();
 
@@ -13,6 +11,7 @@ const ExcelJS = require('exceljs');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const { query, initDb } = require('./db');
+const departmentsRoutes = require('./routes/departments');
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'vclock-secret';
@@ -24,6 +23,8 @@ const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתש�
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
+
+app.use('/api/admin/departments', authRequired, adminRequired, departmentsRoutes);
 
 function parseJsonArray(value) {
   try {
@@ -1365,13 +1366,16 @@ app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          u.day_closed,
          u.created_at,
          u.work_group_id,
+         u.department_id,
          u.allowed_work_days,
          u.friday_rotation_anchor_date,
          u.friday_rotation_start_allowed,
          wg.name AS work_group_name,
-         wg.work_days AS work_group_days
+         wg.work_days AS work_group_days,
+         d.name AS department_name
        FROM users u
        LEFT JOIN work_groups wg ON wg.id = u.work_group_id
+       LEFT JOIN departments d ON d.id = u.department_id
        ORDER BY u.employee_code ASC`
     );
 
@@ -1394,6 +1398,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       role,
       is_active,
       work_group_id,
+      department_id,
       allowed_work_days,
       friday_rotation_anchor_date,
       friday_rotation_start_allowed
@@ -1435,6 +1440,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
         is_active ? 1 : 0,
         0,
         work_group_id ? parseInt(work_group_id, 10) : null,
+        department_id ? parseInt(department_id, 10) : null,
         JSON.stringify(normalizeWeekDays(allowed_work_days)),
         friday_rotation_anchor_date || getNowInIsrael().dateString,
         friday_rotation_start_allowed ? 1 : 0
@@ -1458,6 +1464,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       is_active,
       day_closed,
       work_group_id,
+      department_id,
       allowed_work_days,
       friday_rotation_anchor_date,
       friday_rotation_start_allowed
@@ -1484,6 +1491,9 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
     const nextWorkGroupId = typeof work_group_id !== 'undefined'
       ? (work_group_id ? parseInt(work_group_id, 10) : null)
       : user.work_group_id;
+    const nextDepartmentId = typeof department_id !== 'undefined'
+      ? (department_id ? parseInt(department_id, 10) : null)
+      : user.department_id;
     const nextAllowedWorkDays = typeof allowed_work_days !== 'undefined'
       ? JSON.stringify(normalizeWeekDays(allowed_work_days))
       : user.allowed_work_days;
@@ -1516,10 +1526,11 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
            is_active = $5,
            day_closed = $6,
            work_group_id = $7,
-           allowed_work_days = $8,
-           friday_rotation_anchor_date = $9,
-           friday_rotation_start_allowed = $10
-       WHERE id = $11`,
+           department_id = $8,
+           allowed_work_days = $9,
+           friday_rotation_anchor_date = $10,
+           friday_rotation_start_allowed = $11
+       WHERE id = $12`,
       [
         nextEmployeeCode,
         nextName,
@@ -1528,6 +1539,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
         nextActive,
         nextClosed,
         nextWorkGroupId,
+        nextDepartmentId,
         nextAllowedWorkDays,
         nextFridayAnchorDate,
         nextFridayStartAllowed,
@@ -2020,8 +2032,8 @@ app.get('*', (req, res) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`VClock PostgreSQL running on http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`VClock PostgreSQL running on port ${PORT}`);
     });
   })
   .catch((err) => {

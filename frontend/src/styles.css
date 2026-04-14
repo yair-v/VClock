@@ -11,8 +11,8 @@
   --white-text: #ffffff;
   --primary: #14f31f;
   --primary-2: #125dd0;
-  --secondary: #ff0000;
-  --secondary-text: #ffffff;
+  --secondary: #eff5fd;
+  --secondary-text: #1f446f;
   --danger: #ff5f5f;
   --danger-2: #dc4343;
   --success-bg: #dcfce7;
@@ -288,7 +288,7 @@ textarea {
 .nav-btn {
   background: linear-gradient(180deg, var(--primary) 0%, var(--primary-2) 100%);
   color: #fff;
-  box-shadow: none;
+  box-shadow: 0 10px 22px rgb(20, 236, 67);
 }
 
 .secondary-btn {
@@ -564,7 +564,7 @@ textarea {
   padding: 8px 12px;
   font-weight: 800;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: 0 10px 20px rgba(220, 67, 67, 0.25);
 }
 
 .danger-btn.small {

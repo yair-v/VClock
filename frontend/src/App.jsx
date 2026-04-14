@@ -8,8 +8,6 @@ import AdminReportsPage from './pages/AdminReportsPage';
 import AdminUsersPage from './pages/AdminUsersPage';
 import AdminMonthlyPage from './pages/AdminMonthlyPage';
 import AdminDepartmentsPage from './pages/AdminDepartmentsPage';
-import TwoFactorPage from './pages/TwoFactorPage';
-import TwoFactorSettingsPage from './pages/TwoFactorSettingsPage';
 import BrandLogo from './components/BrandLogo';
 
 function normalizeUser(user) {
@@ -84,7 +82,6 @@ function Layout({ children }) {
               <>
                 <Link className="nav-btn" to="/employee">דיווח</Link>
                 <Link className="nav-btn" to="/my-reports">הדיווחים שלי</Link>
-                <Link className="nav-btn" to="/security">אבטחה</Link>
               </>
             )}
 
@@ -95,7 +92,6 @@ function Layout({ children }) {
                 <Link className="nav-btn" to="/admin/monthly">חודשי</Link>
                 <Link className="nav-btn" to="/admin/users">משתמשים</Link>
                 <Link className="nav-btn" to="/admin/departments">מחלקות</Link>
-                <Link className="nav-btn" to="/security">אבטחה</Link>
               </>
             )}
 
@@ -122,10 +118,8 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<LoginPage />} />
-        <Route path="/2fa" element={<TwoFactorPage />} />
         <Route path="/employee" element={<ProtectedRoute><EmployeePage /></ProtectedRoute>} />
         <Route path="/my-reports" element={<ProtectedRoute><MyReportsPage /></ProtectedRoute>} />
-        <Route path="/security" element={<ProtectedRoute><TwoFactorSettingsPage /></ProtectedRoute>} />
         <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboardPage /></ProtectedRoute>} />
         <Route path="/admin/reports" element={<ProtectedRoute adminOnly><AdminReportsPage /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsersPage /></ProtectedRoute>} />
