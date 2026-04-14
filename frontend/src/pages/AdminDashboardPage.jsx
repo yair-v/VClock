@@ -1,4 +1,3 @@
-frontend / src / pages / AdminDashboardPage.jsx
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../services/api';
 

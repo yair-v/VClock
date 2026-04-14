@@ -17,6 +17,7 @@ export default function AdminUsersPage() {
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [loadingActionId, setLoadingActionId] = useState(null);
 
   async function loadUsers() {
     setError('');
@@ -94,20 +95,38 @@ export default function AdminUsersPage() {
   async function toggleUser(user) {
     setMessage('');
     setError('');
+    setLoadingActionId(user.id);
 
     try {
       await apiPut(`/admin/users/${user.id}`, {
-        employee_code: user.employee_code,
-        full_name: user.full_name,
-        role: user.role,
-        is_active: !user.is_active,
-        department_id: user.department_id || null
+        is_active: !user.is_active
       });
 
       setMessage('הסטטוס עודכן');
       await loadUsers();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoadingActionId(null);
+    }
+  }
+
+  async function reopenDay(user) {
+    const ok = window.confirm(`לשחרר את ${user.full_name} לפתיחה מחדש של היום?`);
+    if (!ok) return;
+
+    setMessage('');
+    setError('');
+    setLoadingActionId(user.id);
+
+    try {
+      await apiPost(`/admin/users/${user.id}/reopen-day`, {});
+      setMessage(`יום העבודה של ${user.full_name} שוחרר בהצלחה`);
+      await loadUsers();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingActionId(null);
     }
   }
 
@@ -117,6 +136,7 @@ export default function AdminUsersPage() {
 
     setMessage('');
     setError('');
+    setLoadingActionId(user.id);
 
     try {
       await apiDelete(`/admin/users/${user.id}`);
@@ -124,6 +144,8 @@ export default function AdminUsersPage() {
       await loadUsers();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoadingActionId(null);
     }
   }
 
@@ -143,6 +165,7 @@ export default function AdminUsersPage() {
               <th>תפקיד</th>
               <th>מחלקה</th>
               <th>סטטוס</th>
+              <th>יום סגור</th>
               <th>פעולות</th>
             </tr>
           </thead>
@@ -155,17 +178,48 @@ export default function AdminUsersPage() {
                 <td>{user.role}</td>
                 <td>{user.department_name || '-'}</td>
                 <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
+                <td>{user.day_closed ? 'כן' : 'לא'}</td>
                 <td>
                   <div className="action-buttons">
-                    <button className="secondary-btn small" onClick={() => startEdit(user)} type="button">
+                    <button
+                      className="secondary-btn small"
+                      onClick={() => startEdit(user)}
+                      type="button"
+                      disabled={loadingActionId === user.id}
+                    >
                       ערוך
                     </button>
 
-                    <button className="secondary-btn small" onClick={() => toggleUser(user)} type="button">
-                      {user.is_active ? 'חסום' : 'הפעל'}
+                    <button
+                      className="secondary-btn small"
+                      onClick={() => toggleUser(user)}
+                      type="button"
+                      disabled={loadingActionId === user.id}
+                    >
+                      {loadingActionId === user.id
+                        ? 'טוען...'
+                        : user.is_active
+                          ? 'חסום'
+                          : 'הפעל'}
                     </button>
 
-                    <button className="danger-btn small" onClick={() => deleteUser(user)} type="button">
+                    {Boolean(user.day_closed) && (
+                      <button
+                        className="primary-btn small"
+                        onClick={() => reopenDay(user)}
+                        type="button"
+                        disabled={loadingActionId === user.id}
+                      >
+                        {loadingActionId === user.id ? 'משחרר...' : 'שחרר'}
+                      </button>
+                    )}
+
+                    <button
+                      className="danger-btn small"
+                      onClick={() => deleteUser(user)}
+                      type="button"
+                      disabled={loadingActionId === user.id}
+                    >
                       מחק
                     </button>
                   </div>
@@ -175,7 +229,7 @@ export default function AdminUsersPage() {
 
             {users.length === 0 && (
               <tr>
-                <td colSpan="6" className="empty-cell">אין עובדים להצגה</td>
+                <td colSpan="7" className="empty-cell">אין עובדים להצגה</td>
               </tr>
             )}
           </tbody>
@@ -257,7 +311,11 @@ export default function AdminUsersPage() {
             </button>
 
             {editingId && (
-              <button className="secondary-btn" type="button" onClick={resetForm}>
+              <button
+                className="secondary-btn"
+                type="button"
+                onClick={resetForm}
+              >
                 בטל
               </button>
             )}
