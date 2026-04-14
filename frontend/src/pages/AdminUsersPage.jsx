@@ -1,4 +1,4 @@
-frontend / src / pages / AdminUsersPage.jsx
+
 import { useEffect, useState } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete } from '../services/api';
 
