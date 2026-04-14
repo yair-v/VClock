@@ -2020,8 +2020,8 @@ app.get('*', (req, res) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`VClock PostgreSQL running on http://localhost:${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`VClock running on port ${PORT}`);
     });
   })
   .catch((err) => {
