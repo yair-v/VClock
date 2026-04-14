@@ -232,6 +232,17 @@ async function initDb() {
     ADD COLUMN IF NOT EXISTS friday_rotation_start_allowed INTEGER NOT NULL DEFAULT 1
   `);
 
+
+  await query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS twofa_secret TEXT NULL
+  `);
+
+  await query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS twofa_enabled INTEGER NOT NULL DEFAULT 0
+  `);
+
   await query(`
     ALTER TABLE attendance_records
     ADD COLUMN IF NOT EXISTS latitude TEXT DEFAULT ''

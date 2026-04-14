@@ -39,9 +39,20 @@ export default function LoginPage() {
 
     try {
       const data = await apiPost('/login', { employeeCode, password });
+
+      if (data.requiresTwoFactor) {
+        sessionStorage.setItem('vclock_2fa_pending', JSON.stringify({
+          tempToken: data.tempToken,
+          employeeCode: data.user?.employee_code || employeeCode
+        }));
+        navigate('/two-factor');
+        return;
+      }
+
       const user = normalizeUser(data.user);
       localStorage.setItem('vclock_token', data.token);
       localStorage.setItem('vclock_user', JSON.stringify(user));
+      sessionStorage.removeItem('vclock_2fa_pending');
       navigate(user.role === 'admin' ? '/admin/dashboard' : '/employee');
     } catch (err) {
       setError(err.message);

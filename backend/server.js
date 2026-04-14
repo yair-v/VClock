@@ -10,6 +10,8 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const ExcelJS = require('exceljs');
+const speakeasy = require('speakeasy');
+const QRCode = require('qrcode');
 const { query, initDb } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -120,56 +122,6 @@ function getDateStringFromValue(value) {
   );
 
   return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-
-function getCurrentWorkdayDateString() {
-  const now = getNowInIsrael();
-  const currentDate = new Date(Date.UTC(now.year, now.month - 1, now.day));
-
-  if (now.hour < 3) {
-    currentDate.setUTCDate(currentDate.getUTCDate() - 1);
-  }
-
-  const year = currentDate.getUTCFullYear();
-  const month = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(currentDate.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-async function resetClosedDayIfNeeded(user) {
-  if (!user || !user.day_closed) {
-    return user;
-  }
-
-  const lastRes = await query(
-    `SELECT record_time, record_type
-     FROM attendance_records
-     WHERE user_id = $1
-     ORDER BY record_time DESC, id DESC
-     LIMIT 1`,
-    [user.id]
-  );
-
-  const lastRecord = lastRes.rows[0];
-  const currentWorkdayDate = getCurrentWorkdayDateString();
-  const lastRecordDate = getDateStringFromValue(lastRecord?.record_time);
-
-  if (!lastRecord || lastRecord.record_type !== 'out' || lastRecordDate !== currentWorkdayDate) {
-    await query(
-      `UPDATE users
-       SET day_closed = 0
-       WHERE id = $1`,
-      [user.id]
-    );
-
-    return {
-      ...user,
-      day_closed: 0
-    };
-  }
-
-  return user;
 }
 
 function getWeekDayNameFromDateString(dateString) {
@@ -487,6 +439,35 @@ function createUserToken(user) {
   );
 }
 
+function createTwoFactorToken(user) {
+  return jwt.sign(
+    {
+      id: user.id,
+      employee_code: user.employee_code,
+      full_name: user.full_name,
+      role: user.role,
+      purpose: '2fa_pending'
+    },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
+}
+
+function normalizeOtpToken(token) {
+  return String(token || '').replace(/\s+/g, '').trim();
+}
+
+function verifyTotpCode(secret, token) {
+  if (!secret) return false;
+
+  return speakeasy.totp.verify({
+    secret,
+    encoding: 'base32',
+    token: normalizeOtpToken(token),
+    window: 1
+  });
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, port: PORT, timezone: APP_TIMEZONE });
 });
@@ -502,6 +483,21 @@ app.post('/api/login', async (req, res) => {
 
     if (!bcrypt.compareSync(String(password), user.password_hash)) {
       return res.status(400).json({ error: 'סיסמה שגויה' });
+    }
+
+    if (Number(user.twofa_enabled || 0) === 1 && user.twofa_secret) {
+      const tempToken = createTwoFactorToken(user);
+
+      return res.json({
+        requiresTwoFactor: true,
+        tempToken,
+        user: {
+          id: user.id,
+          employee_code: user.employee_code,
+          full_name: user.full_name,
+          role: user.role
+        }
+      });
     }
 
     const token = createUserToken(user);
@@ -532,16 +528,229 @@ app.get('/api/me', authRequired, (req, res) => {
   res.json({ user: req.user });
 });
 
-app.get('/api/my-status', authRequired, async (req, res) => {
-  try {
-    await ensureAutoCloseSpecialRecords();
 
-    let user = await resolveUserSchedule(req.user.id);
+app.get('/api/2fa/status', authRequired, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, employee_code, full_name, role, twofa_enabled, twofa_secret
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const user = result.rows[0];
     if (!user) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
 
-    user = await resetClosedDayIfNeeded(user);
+    res.json({
+      enabled: Number(user.twofa_enabled || 0) === 1,
+      hasSecret: Boolean(user.twofa_secret)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/2fa/setup', authRequired, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT id, employee_code, full_name, twofa_secret, twofa_enabled
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+
+    const secret = speakeasy.generateSecret({
+      name: `VClock (${user.employee_code})`,
+      issuer: 'VClock',
+      length: 20
+    });
+
+    await query(
+      `UPDATE users
+       SET twofa_secret = $1,
+           twofa_enabled = 0
+       WHERE id = $2`,
+      [secret.base32, user.id]
+    );
+
+    const qrCodeDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+
+    res.json({
+      enabled: false,
+      secret: secret.base32,
+      qrCodeDataUrl
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/2fa/enable', authRequired, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    const result = await query(
+      `SELECT id, full_name, twofa_secret
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const user = result.rows[0];
+    if (!user || !user.twofa_secret) {
+      return res.status(400).json({ error: 'יש ליצור קוד QR לפני ההפעלה' });
+    }
+
+    if (!verifyTotpCode(user.twofa_secret, token)) {
+      return res.status(400).json({ error: 'קוד אימות לא תקין' });
+    }
+
+    await query(
+      `UPDATE users
+       SET twofa_enabled = 1
+       WHERE id = $1`,
+      [user.id]
+    );
+
+    await logAction({
+      userId: user.id,
+      actionType: '2fa-enable',
+      actionTitle: 'הפעלת אימות דו-שלבי',
+      details: `${user.full_name} הפעיל אימות דו-שלבי`,
+      createdByUserId: user.id
+    });
+
+    res.json({ message: 'האימות הדו-שלבי הופעל בהצלחה' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/2fa/disable', authRequired, async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    const result = await query(
+      `SELECT id, full_name, twofa_secret, twofa_enabled
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    const user = result.rows[0];
+    if (!user || Number(user.twofa_enabled || 0) !== 1 || !user.twofa_secret) {
+      return res.status(400).json({ error: 'האימות הדו-שלבי לא מופעל' });
+    }
+
+    if (!verifyTotpCode(user.twofa_secret, token)) {
+      return res.status(400).json({ error: 'קוד אימות לא תקין' });
+    }
+
+    await query(
+      `UPDATE users
+       SET twofa_enabled = 0,
+           twofa_secret = NULL
+       WHERE id = $1`,
+      [user.id]
+    );
+
+    await logAction({
+      userId: user.id,
+      actionType: '2fa-disable',
+      actionTitle: 'ביטול אימות דו-שלבי',
+      details: `${user.full_name} ביטל אימות דו-שלבי`,
+      createdByUserId: user.id
+    });
+
+    res.json({ message: 'האימות הדו-שלבי בוטל' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/2fa/verify-login', async (req, res) => {
+  try {
+    const { tempToken, token } = req.body;
+
+    if (!tempToken) {
+      return res.status(400).json({ error: 'חסר טוקן זמני' });
+    }
+
+    let pendingUser;
+    try {
+      pendingUser = jwt.verify(tempToken, JWT_SECRET);
+    } catch {
+      return res.status(401).json({ error: 'פג תוקף האימות. התחבר מחדש.' });
+    }
+
+    if (pendingUser.purpose !== '2fa_pending') {
+      return res.status(401).json({ error: 'טוקן אימות לא תקין' });
+    }
+
+    const result = await query(
+      `SELECT *
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [pendingUser.id]
+    );
+
+    const user = result.rows[0];
+    if (!user || !user.is_active) {
+      return res.status(400).json({ error: 'משתמש לא קיים או חסום' });
+    }
+
+    if (Number(user.twofa_enabled || 0) !== 1 || !user.twofa_secret) {
+      return res.status(400).json({ error: 'האימות הדו-שלבי אינו פעיל למשתמש זה' });
+    }
+
+    if (!verifyTotpCode(user.twofa_secret, token)) {
+      return res.status(400).json({ error: 'קוד אימות לא תקין' });
+    }
+
+    const fullToken = createUserToken(user);
+
+    await logAction({
+      userId: user.id,
+      actionType: 'login',
+      actionTitle: 'כניסה למערכת עם אימות דו-שלבי',
+      details: `${user.full_name} התחבר למערכת עם אימות דו-שלבי`,
+      createdByUserId: user.id
+    });
+
+    res.json({
+      token: fullToken,
+      user: {
+        id: user.id,
+        employee_code: user.employee_code,
+        full_name: user.full_name,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/my-status', authRequired, async (req, res) => {
+  try {
+    await ensureAutoCloseSpecialRecords();
+
+    const user = await resolveUserSchedule(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
 
     const lastRes = await query(
       `SELECT *
@@ -675,13 +884,11 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'יש לבחור סוג יום עבודה' });
     }
 
-    let user = await resolveUserSchedule(req.user.id);
+    const user = await resolveUserSchedule(req.user.id);
 
     if (!user) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
-
-    user = await resetClosedDayIfNeeded(user);
 
     const lastRes = await query(
       `SELECT *

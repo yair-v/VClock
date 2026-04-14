@@ -81,22 +81,4 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-
-router.delete('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const user = await get('SELECT * FROM users WHERE id = ?', [id]);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    await run('DELETE FROM users WHERE id = ?', [id]);
-    res.json({ message: 'User deleted successfully' });
-  } catch (error) {
-    console.error('DELETE USER ERROR:', error);
-    res.status(500).json({ message: 'Failed to delete user' });
-  }
-});
-
 module.exports = router;
