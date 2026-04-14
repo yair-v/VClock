@@ -135,7 +135,7 @@ function SemiGauge({ activeCount, totalCount, label }) {
           strokeLinecap="round"
         />
         <path
-          d={describeArc(180, 180, 80, 0, endAngle)}
+          d={describeArc(120, 120, 80, 0, endAngle)}
           stroke="#22c55e"
           strokeWidth="18"
           fill="none"
