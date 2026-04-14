@@ -157,27 +157,15 @@ export default function AdminUsersPage() {
                 <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
                 <td>
                   <div className="action-buttons">
-                    <button
-                      className="secondary-btn small"
-                      onClick={() => startEdit(user)}
-                      type="button"
-                    >
+                    <button className="secondary-btn small" onClick={() => startEdit(user)} type="button">
                       ערוך
                     </button>
 
-                    <button
-                      className="secondary-btn small"
-                      onClick={() => toggleUser(user)}
-                      type="button"
-                    >
+                    <button className="secondary-btn small" onClick={() => toggleUser(user)} type="button">
                       {user.is_active ? 'חסום' : 'הפעל'}
                     </button>
 
-                    <button
-                      className="danger-btn small"
-                      onClick={() => deleteUser(user)}
-                      type="button"
-                    >
+                    <button className="danger-btn small" onClick={() => deleteUser(user)} type="button">
                       מחק
                     </button>
                   </div>
@@ -269,11 +257,7 @@ export default function AdminUsersPage() {
             </button>
 
             {editingId && (
-              <button
-                className="secondary-btn"
-                type="button"
-                onClick={resetForm}
-              >
+              <button className="secondary-btn" type="button" onClick={resetForm}>
                 בטל
               </button>
             )}

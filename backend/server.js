@@ -11,7 +11,6 @@ const ExcelJS = require('exceljs');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const { query, initDb } = require('./db');
-const departmentsRoutes = require('./routes/departments');
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'vclock-secret';
@@ -23,8 +22,6 @@ const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתש�
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
-
-app.use('/api/admin/departments', authRequired, adminRequired, departmentsRoutes);
 
 function parseJsonArray(value) {
   try {
@@ -1427,11 +1424,12 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          day_closed,
          created_at,
          work_group_id,
+         department_id,
          allowed_work_days,
          friday_rotation_anchor_date,
          friday_rotation_start_allowed
        )
-       VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7,$8,$9,$10)`,
+       VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7,$8,$9,$10,$11)`,
       [
         String(employee_code),
         String(full_name),
@@ -1642,6 +1640,108 @@ app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res)
     }
 
     await query(`DELETE FROM users WHERE id = $1`, [id]);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+app.get('/api/admin/departments', authRequired, adminRequired, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT
+         d.*,
+         (
+           SELECT COUNT(*)::int
+           FROM users u
+           WHERE u.department_id = d.id
+         ) AS users_count
+       FROM departments d
+       ORDER BY d.name ASC`
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/departments', authRequired, adminRequired, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const description = String(req.body.description || '').trim();
+    const isActive = req.body.is_active ? 1 : 0;
+
+    if (!name) {
+      return res.status(400).json({ error: 'יש להזין שם מחלקה' });
+    }
+
+    await query(
+      `INSERT INTO departments (name, description, is_active, created_at)
+       VALUES ($1, $2, $3, NOW())`,
+      [name, description, typeof req.body.is_active === 'undefined' ? 1 : isActive]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    if (String(err.message || '').includes('duplicate key')) {
+      return res.status(400).json({ error: 'שם המחלקה כבר קיים' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/departments/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const name = String(req.body.name || '').trim();
+    const description = String(req.body.description || '').trim();
+    const isActive = req.body.is_active ? 1 : 0;
+
+    if (!name) {
+      return res.status(400).json({ error: 'יש להזין שם מחלקה' });
+    }
+
+    await query(
+      `UPDATE departments
+       SET name = $1,
+           description = $2,
+           is_active = $3
+       WHERE id = $4`,
+      [name, description, isActive, id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    if (String(err.message || '').includes('duplicate key')) {
+      return res.status(400).json({ error: 'שם המחלקה כבר קיים' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/departments/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+
+    const used = await query(
+      `SELECT COUNT(*)::int AS count
+       FROM users
+       WHERE department_id = $1`,
+      [id]
+    );
+
+    if (used.rows[0] && used.rows[0].count > 0) {
+      return res.status(400).json({ error: 'לא ניתן למחוק מחלקה שמשויכת לעובדים' });
+    }
+
+    await query(
+      `DELETE FROM departments
+       WHERE id = $1`,
+      [id]
+    );
 
     res.json({ success: true });
   } catch (err) {

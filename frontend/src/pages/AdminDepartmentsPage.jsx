@@ -95,6 +95,7 @@ export default function AdminDepartmentsPage() {
               <th>שם מחלקה</th>
               <th>תיאור</th>
               <th>סטטוס</th>
+              <th>עובדים</th>
               <th>פעולות</th>
             </tr>
           </thead>
@@ -105,21 +106,13 @@ export default function AdminDepartmentsPage() {
                 <td>{dep.name}</td>
                 <td>{dep.description || '-'}</td>
                 <td>{dep.is_active ? 'פעילה' : 'לא פעילה'}</td>
+                <td>{dep.users_count ?? 0}</td>
                 <td>
                   <div className="action-buttons">
-                    <button
-                      className="secondary-btn small"
-                      type="button"
-                      onClick={() => startEdit(dep)}
-                    >
+                    <button className="secondary-btn small" type="button" onClick={() => startEdit(dep)}>
                       ערוך
                     </button>
-
-                    <button
-                      className="danger-btn small"
-                      type="button"
-                      onClick={() => deleteDepartment(dep)}
-                    >
+                    <button className="danger-btn small" type="button" onClick={() => deleteDepartment(dep)}>
                       מחק
                     </button>
                   </div>
@@ -129,7 +122,7 @@ export default function AdminDepartmentsPage() {
 
             {departments.length === 0 && (
               <tr>
-                <td colSpan="4" className="empty-cell">אין מחלקות להצגה</td>
+                <td colSpan="5" className="empty-cell">אין מחלקות להצגה</td>
               </tr>
             )}
           </tbody>
@@ -137,9 +130,7 @@ export default function AdminDepartmentsPage() {
       </div>
 
       <div className="table-card">
-        <div className="section-title">
-          {editingId ? 'עריכת מחלקה' : 'הוספת מחלקה'}
-        </div>
+        <div className="section-title">{editingId ? 'עריכת מחלקה' : 'הוספת מחלקה'}</div>
 
         <form className="form-grid" onSubmit={saveDepartment}>
           <label>
@@ -174,11 +165,7 @@ export default function AdminDepartmentsPage() {
             </button>
 
             {editingId && (
-              <button
-                className="secondary-btn"
-                type="button"
-                onClick={resetForm}
-              >
+              <button className="secondary-btn" type="button" onClick={resetForm}>
                 בטל
               </button>
             )}
