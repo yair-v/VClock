@@ -1,6 +1,23 @@
 {
+  "name": "vclock-root",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "start": "cd backend && node server.js",
+    "build": "cd frontend && npm install && npm run build"
+  },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.12.0",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
