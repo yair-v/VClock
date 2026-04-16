@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { apiGet, apiPut } from '../services/api';
 
+function formatForInput(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  const offset = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
 export default function AdminReportsPage() {
   const [rows, setRows] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -9,7 +17,6 @@ export default function AdminReportsPage() {
   const [message, setMessage] = useState('');
 
   async function loadData() {
-    setError('');
     try {
       const data = await apiGet('/admin/reports');
       setRows(Array.isArray(data) ? data : []);
@@ -26,7 +33,8 @@ export default function AdminReportsPage() {
     setEditingId(row.id);
     setEditData({
       work_day_type: row.work_day_type,
-      note: row.note || ''
+      note: row.note || '',
+      record_time: formatForInput(row.record_time)
     });
   }
 
@@ -36,16 +44,15 @@ export default function AdminReportsPage() {
   }
 
   async function saveEdit(id) {
-    setError('');
-    setMessage('');
-
     try {
-      await apiPut(`/admin/reports/${id}`, editData);
+      await apiPut(`/admin/reports/${id}`, {
+        ...editData,
+        record_time: new Date(editData.record_time).toISOString()
+      });
 
       setMessage('✔ נשמר בהצלחה');
       setEditingId(null);
-
-      await loadData();
+      loadData();
     } catch (err) {
       setError(err.message);
     }
@@ -67,7 +74,7 @@ export default function AdminReportsPage() {
               <th>סוג</th>
               <th>סוג יום</th>
               <th>הערה</th>
-              <th>תאריך</th>
+              <th>תאריך ושעה</th>
               <th>פעולות</th>
             </tr>
           </thead>
@@ -133,34 +140,35 @@ export default function AdminReportsPage() {
                   </td>
 
                   <td>
-                    {new Date(row.record_time).toLocaleString('he-IL')}
+                    {isEditing ? (
+                      <input
+                        type="datetime-local"
+                        value={editData.record_time}
+                        onChange={(e) =>
+                          setEditData({
+                            ...editData,
+                            record_time: e.target.value
+                          })
+                        }
+                      />
+                    ) : (
+                      new Date(row.record_time).toLocaleString('he-IL')
+                    )}
                   </td>
 
                   <td>
                     {isEditing ? (
                       <>
-                        <button onClick={() => saveEdit(row.id)}>
-                          שמור
-                        </button>
-                        <button onClick={cancelEdit}>
-                          ביטול
-                        </button>
+                        <button onClick={() => saveEdit(row.id)}>שמור</button>
+                        <button onClick={cancelEdit}>ביטול</button>
                       </>
                     ) : (
-                      <button onClick={() => startEdit(row)}>
-                        ערוך
-                      </button>
+                      <button onClick={() => startEdit(row)}>ערוך</button>
                     )}
                   </td>
                 </tr>
               );
             })}
-
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan="7">אין נתונים</td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
