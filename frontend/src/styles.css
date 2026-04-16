@@ -575,3 +575,35 @@ textarea {
 .danger-btn:hover {
   transform: translateY(-1px);
 }
+
+.menu-link {
+  display: block;
+  width: 100%;
+  text-align: right;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f5f8fc;
+  color: #17365c;
+  text-decoration: none;
+  border: 1px solid #d8e3f1;
+  font-weight: 700;
+}
+
+.menu-link:hover {
+  background: #eaf2fb;
+}
+
+.menu-button {
+  cursor: pointer;
+}
+
+.sub-menu-link {
+  background: #fbfdff;
+  font-size: 14px;
+}
+
+.menu-link.danger {
+  background: #fff1f2;
+  color: #b42318;
+  border-color: #fecdd3;
+}

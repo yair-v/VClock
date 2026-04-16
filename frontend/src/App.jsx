@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import EmployeePage from './pages/EmployeePage';
@@ -47,17 +47,52 @@ function ProtectedRoute({ children, adminOnly = false }) {
   return children;
 }
 
+function MenuLink({ to, children, onNavigate, className = '' }) {
+  return (
+    <Link
+      to={to}
+      className={className || 'menu-link'}
+      onClick={onNavigate}
+    >
+      {children}
+    </Link>
+  );
+}
+
 function Layout({ children }) {
   const user = getCurrentUser();
   const navigate = useNavigate();
   const location = useLocation();
   const isLoginPage = location.pathname === '/';
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+    setSettingsOpen(false);
+  }, [location.pathname]);
+
   function logout() {
     localStorage.removeItem('vclock_token');
     localStorage.removeItem('vclock_user');
     sessionStorage.removeItem('vclock_2fa_pending');
+    setMenuOpen(false);
+    setSettingsOpen(false);
     navigate('/');
+  }
+
+  function toggleMenu() {
+    setMenuOpen((prev) => !prev);
+  }
+
+  function toggleSettings() {
+    setSettingsOpen((prev) => !prev);
+  }
+
+  function closeMenu() {
+    setMenuOpen(false);
+    setSettingsOpen(false);
   }
 
   return (
@@ -73,35 +108,162 @@ function Layout({ children }) {
       </div>
 
       {user && (
-        <header className="topbar">
-          <div>
-            <div className="brand">VClock</div>
-            <div className="sub-brand">{user.fullName} | {user.employeeCode}</div>
-          </div>
+        <>
+          <header className="topbar">
+            <div>
+              <div className="brand">VClock</div>
+              <div className="sub-brand">{user.fullName} | {user.employeeCode}</div>
+            </div>
 
-          <div className="topbar-actions">
-            {user.role === 'employee' && (
-              <>
-                <Link className="nav-btn" to="/employee">דיווח</Link>
-                <Link className="nav-btn" to="/my-reports">הדיווחים שלי</Link>
-                <Link className="nav-btn" to="/security">אבטחה</Link>
-              </>
-            )}
+            <div className="topbar-actions">
+              <button
+                type="button"
+                className="nav-btn"
+                onClick={toggleMenu}
+                aria-label="פתח תפריט"
+                aria-expanded={menuOpen}
+              >
+                ☰
+              </button>
+            </div>
+          </header>
 
-            {user.role === 'admin' && (
-              <>
-                <Link className="nav-btn" to="/admin/dashboard">דשבורד</Link>
-                <Link className="nav-btn" to="/admin/reports">דיווחים</Link>
-                <Link className="nav-btn" to="/admin/monthly">חודשי</Link>
-                <Link className="nav-btn" to="/admin/users">משתמשים</Link>
-                <Link className="nav-btn" to="/admin/departments">מחלקות</Link>
-                <Link className="nav-btn" to="/admin/settings">הגדרות</Link>
-              </>
-            )}
+          {menuOpen && (
+            <>
+              <div
+                onClick={closeMenu}
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  background: 'rgba(0,0,0,0.28)',
+                  zIndex: 998
+                }}
+              />
 
-            <button className="nav-btn danger" onClick={logout}>התנתק</button>
-          </div>
-        </header>
+              <aside
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  right: 0,
+                  width: 'min(88vw, 340px)',
+                  height: '100vh',
+                  background: '#ffffff',
+                  boxShadow: '0 0 28px rgba(0,0,0,0.18)',
+                  zIndex: 999,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  padding: '18px 16px',
+                  overflowY: 'auto'
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 16
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 20 }}>תפריט</div>
+                    <div style={{ fontSize: 13, opacity: 0.7 }}>{user.fullName}</div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="nav-btn"
+                    onClick={closeMenu}
+                    aria-label="סגור תפריט"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {user.role === 'employee' && (
+                    <>
+                      <MenuLink to="/employee" onNavigate={closeMenu}>
+                        דיווח
+                      </MenuLink>
+
+                      <MenuLink to="/my-reports" onNavigate={closeMenu}>
+                        הדיווחים שלי
+                      </MenuLink>
+
+                      <button
+                        type="button"
+                        className="menu-link menu-button"
+                        onClick={toggleSettings}
+                      >
+                        הגדרות {settingsOpen ? '▾' : '▸'}
+                      </button>
+
+                      {settingsOpen && (
+                        <div style={{ display: 'grid', gap: 8, paddingRight: 12 }}>
+                          <MenuLink to="/security" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                            אבטחה
+                          </MenuLink>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {user.role === 'admin' && (
+                    <>
+                      <MenuLink to="/admin/dashboard" onNavigate={closeMenu}>
+                        דשבורד
+                      </MenuLink>
+
+                      <MenuLink to="/admin/reports" onNavigate={closeMenu}>
+                        דיווחים
+                      </MenuLink>
+
+                      <MenuLink to="/admin/monthly" onNavigate={closeMenu}>
+                        חודשי
+                      </MenuLink>
+
+                      <button
+                        type="button"
+                        className="menu-link menu-button"
+                        onClick={toggleSettings}
+                      >
+                        הגדרות {settingsOpen ? '▾' : '▸'}
+                      </button>
+
+                      {settingsOpen && (
+                        <div style={{ display: 'grid', gap: 8, paddingRight: 12 }}>
+                          <MenuLink to="/admin/settings" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                            הגדרות כלליות
+                          </MenuLink>
+
+                          <MenuLink to="/security" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                            אבטחה
+                          </MenuLink>
+
+                          <MenuLink to="/admin/departments" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                            מחלקות
+                          </MenuLink>
+
+                          <MenuLink to="/admin/users" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                            משתמשים
+                          </MenuLink>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  <button
+                    type="button"
+                    className="menu-link menu-button danger"
+                    onClick={logout}
+                  >
+                    התנתק
+                  </button>
+                </div>
+              </aside>
+            </>
+          )}
+        </>
       )}
 
       <main className="page-wrap">{children}</main>
