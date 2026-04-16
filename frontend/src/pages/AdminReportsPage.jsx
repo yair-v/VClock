@@ -1,23 +1,17 @@
 import { useEffect, useState } from 'react';
-import { apiGet, exportExcel } from '../services/api';
+import { apiGet, apiPut } from '../services/api';
 
 export default function AdminReportsPage() {
-  const [filters, setFilters] = useState({ employeeCode: '', dateFrom: '', dateTo: '' });
   const [rows, setRows] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
   const [error, setError] = useState('');
-
-  function queryString() {
-    const params = new URLSearchParams();
-    if (filters.employeeCode) params.append('employeeCode', filters.employeeCode);
-    if (filters.dateFrom) params.append('fromDate', filters.dateFrom);
-    if (filters.dateTo) params.append('toDate', filters.dateTo);
-    return params.toString() ? `?${params.toString()}` : '';
-  }
+  const [message, setMessage] = useState('');
 
   async function loadData() {
     setError('');
     try {
-      const data = await apiGet(`/admin/reports${queryString()}`);
+      const data = await apiGet('/admin/reports');
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(err.message);
@@ -28,23 +22,41 @@ export default function AdminReportsPage() {
     loadData();
   }, []);
 
+  function startEdit(row) {
+    setEditingId(row.id);
+    setEditData({
+      work_day_type: row.work_day_type,
+      note: row.note || ''
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditData({});
+  }
+
+  async function saveEdit(id) {
+    setError('');
+    setMessage('');
+
+    try {
+      await apiPut(`/admin/reports/${id}`, editData);
+
+      setMessage('✔ נשמר בהצלחה');
+      setEditingId(null);
+
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="card-page">
-      <div className="section-header">
-        <h2>כל הדיווחים</h2>
-        <div className="inline-actions">
-          <button className="secondary-btn small" onClick={loadData}>חיפוש</button>
-          <button className="primary-btn small" onClick={() => exportExcel(`/admin/export${queryString()}`)}>ייצוא לאקסל</button>
-        </div>
-      </div>
-
-      <div className="filter-grid">
-        <input placeholder="קוד עובד או שם עובד" value={filters.employeeCode} onChange={(e) => setFilters({ ...filters, employeeCode: e.target.value })} />
-        <input type="date" value={filters.dateFrom} onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })} />
-        <input type="date" value={filters.dateTo} onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })} />
-      </div>
+      <h2>דיווחי עובדים</h2>
 
       {error && <div className="alert error">{error}</div>}
+      {message && <div className="alert success">{message}</div>}
 
       <div className="table-card">
         <table>
@@ -55,22 +67,99 @@ export default function AdminReportsPage() {
               <th>סוג</th>
               <th>סוג יום</th>
               <th>הערה</th>
-              <th>תאריך ושעה</th>
+              <th>תאריך</th>
+              <th>פעולות</th>
             </tr>
           </thead>
+
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td>{row.full_name}</td>
-                <td>{row.employee_code}</td>
-                <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
-                <td>{row.work_day_type}</td>
-                <td>{row.note || '-'}</td>
-                <td>{new Date(row.record_time).toLocaleString('he-IL')}</td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const isEditing = editingId === row.id;
+
+              return (
+                <tr
+                  key={row.id}
+                  style={row.is_edited ? { background: '#fff3cd' } : {}}
+                >
+                  <td>
+                    {row.full_name} {row.is_edited && '⭐'}
+                  </td>
+
+                  <td>{row.employee_code}</td>
+
+                  <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
+
+                  <td>
+                    {isEditing ? (
+                      <select
+                        value={editData.work_day_type}
+                        onChange={(e) =>
+                          setEditData({
+                            ...editData,
+                            work_day_type: e.target.value
+                          })
+                        }
+                      >
+                        <option>יום רגיל</option>
+                        <option>שישי</option>
+                        <option>שישי בתשלום</option>
+                        <option>שבת</option>
+                        <option>חג</option>
+                        <option>חופשה</option>
+                        <option>מחלה</option>
+                        <option>מילואים</option>
+                        <option>עבודה מהבית</option>
+                        <option>אחר</option>
+                      </select>
+                    ) : (
+                      row.work_day_type
+                    )}
+                  </td>
+
+                  <td>
+                    {isEditing ? (
+                      <input
+                        value={editData.note}
+                        onChange={(e) =>
+                          setEditData({
+                            ...editData,
+                            note: e.target.value
+                          })
+                        }
+                      />
+                    ) : (
+                      row.note || '-'
+                    )}
+                  </td>
+
+                  <td>
+                    {new Date(row.record_time).toLocaleString('he-IL')}
+                  </td>
+
+                  <td>
+                    {isEditing ? (
+                      <>
+                        <button onClick={() => saveEdit(row.id)}>
+                          שמור
+                        </button>
+                        <button onClick={cancelEdit}>
+                          ביטול
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={() => startEdit(row)}>
+                        ערוך
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+
             {rows.length === 0 && (
-              <tr><td colSpan="6" className="empty-cell">אין נתונים</td></tr>
+              <tr>
+                <td colSpan="7">אין נתונים</td>
+              </tr>
             )}
           </tbody>
         </table>
