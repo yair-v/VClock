@@ -20,7 +20,8 @@ const APP_TIMEZONE = 'Asia/Jerusalem';
 const WEEK_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const REGULAR_DAY_TYPES = ['יום רגיל', 'עבודה מהבית'];
 const SPECIAL_AUTO_CLOSE_TYPES = ['מילואים', 'מחלה', 'מחלת משפחה'];
-const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחת בוקר', 'ארוחת צהריים', 'ארוחת ערב', 'אחר'];
+const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחה', 'אחר'];
+const ALLOWED_MEAL_TYPES = ['breakfast', 'lunch', 'dinner'];
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -174,6 +175,50 @@ function buildActionTitle(recordType, workDayType) {
 }
 
 
+function normalizeMealType(value) {
+  const normalized = String(value || '').trim();
+  return ALLOWED_MEAL_TYPES.includes(normalized) ? normalized : '';
+}
+
+function getMealLabel(mealType) {
+  if (mealType === 'breakfast') return 'ארוחת בוקר';
+  if (mealType === 'lunch') return 'ארוחת צהריים';
+  if (mealType === 'dinner') return 'ארוחת ערב';
+  return '';
+}
+
+async function getNearestCityFromCoords(latitude, longitude) {
+  if (!latitude || !longitude) return '';
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&zoom=12&addressdetails=1`,
+      {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'VClock/1.0',
+          'Accept-Language': 'he,en'
+        }
+      }
+    );
+
+    if (!response.ok) return '';
+
+    const data = await response.json();
+    const address = data?.address || {};
+
+    return address.city || address.town || address.village || address.municipality || address.state_district || '';
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+
 function getMonthKeyFromDateValue(value) {
   const date = new Date(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -198,81 +243,6 @@ async function ensureMonthlyLock() {
      ON CONFLICT (month_key) DO NOTHING`,
     [prevMonthKey]
   );
-}
-
-
-
-async function getCityFromCoords(latitude, longitude) {
-  if (!latitude || !longitude) return '';
-
-  try {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&accept-language=he,en`,
-      {
-        headers: {
-          'User-Agent': 'VClock/1.0 (attendance reverse geocoding)'
-        }
-      }
-    );
-
-    if (!response.ok) return '';
-
-    const data = await response.json();
-    return (
-      data?.address?.city ||
-      data?.address?.town ||
-      data?.address?.village ||
-      data?.address?.municipality ||
-      data?.address?.suburb ||
-      ''
-    );
-  } catch {
-    return '';
-  }
-}
-
-async function ensureMissingCheckoutAlerts() {
-  const today = getNowInIsrael().dateString;
-
-  const result = await query(
-    `SELECT DISTINCT ON (r.user_id, DATE(r.record_time))
-       r.id,
-       r.user_id,
-       r.record_time,
-       r.record_type,
-       r.work_day_type,
-       r.missing_checkout,
-       u.full_name
-     FROM attendance_records r
-     JOIN users u ON u.id = r.user_id
-     WHERE DATE(r.record_time) < $1::date
-     ORDER BY r.user_id, DATE(r.record_time), r.record_time DESC, r.id DESC`,
-    [today]
-  );
-
-  for (const row of result.rows) {
-    if (row.record_type !== 'in') continue;
-    if (row.missing_checkout) continue;
-
-    await query(
-      `UPDATE attendance_records
-       SET missing_checkout = TRUE,
-           missing_checkout_note = 'לא נסגר עד 23:59',
-           missing_checkout_logged_at = COALESCE(missing_checkout_logged_at, NOW())
-       WHERE id = $1
-         AND missing_checkout = FALSE`,
-      [row.id]
-    );
-
-    await logAction({
-      userId: row.user_id,
-      attendanceRecordId: row.id,
-      actionType: 'missing_checkout',
-      actionTitle: 'יום עבודה לא נסגר עד 23:59',
-      details: `נמצאה כניסה פתוחה ללא יציאה עבור ${row.full_name || ''} בתאריך ${getDateStringFromValue(row.record_time)}`,
-      createdByUserId: null
-    });
-  }
 }
 
 async function isMonthLocked(monthKey) {
@@ -862,7 +832,6 @@ app.get('/api/my-status', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const user = await resolveUserSchedule(req.user.id);
     if (!user) {
@@ -910,7 +879,6 @@ app.get('/api/my-records', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const { start, end } = getWorkdayWindow();
 
@@ -934,7 +902,6 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const result = await query(
       `SELECT
@@ -988,7 +955,6 @@ app.post('/api/attendance', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const {
       recordType,
@@ -997,7 +963,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       latitude,
       longitude,
       location_status,
-      mealType
+      meal_type
     } = req.body;
 
     if (!['in', 'out'].includes(recordType)) {
@@ -1035,6 +1001,11 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       workDayType
     });
 
+    const normalizedMealType = normalizeMealType(meal_type);
+    const mealCity = normalizedMealType && location_status === 'ok'
+      ? await getNearestCityFromCoords(latitude, longitude)
+      : '';
+
     if (recordType === 'in' && user.day_closed) {
       return res.status(400).json({ error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש' });
     }
@@ -1060,10 +1031,6 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       });
     }
 
-    const mealCity = mealType && latitude && longitude && location_status === 'ok'
-      ? await getCityFromCoords(latitude, longitude)
-      : '';
-
     const inserted = await query(
       `INSERT INTO attendance_records
        (
@@ -1084,11 +1051,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
          manager_note,
          auto_closed,
          source_action,
-         action_label,
-         meal_type,
-         meal_city
+         action_label
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
       [
         req.user.id,
@@ -1107,8 +1072,10 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         0,
         'manual',
         buildActionTitle(recordType, workDayType),
-        mealType || '',
-        mealCity || ''
+        normalizedMealType,
+        mealCity,
+        normalizedMealType ? (latitude || '') : '',
+        normalizedMealType ? (longitude || '') : ''
       ]
     );
 
@@ -1129,9 +1096,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       details: [
         `סוג יום: ${workDayType}`,
         note ? `הערה: ${note}` : '',
-        mealType ? `ארוחה: ${mealType}${mealCity ? ` בעיר ${mealCity}` : ''}` : '',
         validation.exceptionReason ? `חריגה: ${validation.exceptionReason}` : '',
-        validation.requiresAdminApproval ? 'ממתין לאישור מנהל' : 'אושר אוטומטית'
+        validation.requiresAdminApproval ? 'ממתין לאישור מנהל' : 'אושר אוטומטית',
+        normalizedMealType ? `ארוחה: ${getMealLabel(normalizedMealType)}${mealCity ? ` (${mealCity})` : ''}` : ''
       ].filter(Boolean).join(' | '),
       createdByUserId: req.user.id
     });
@@ -1142,7 +1109,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       approval_status: inserted.rows[0].approval_status,
       requires_admin_approval: inserted.rows[0].requires_admin_approval,
       exception_reason: inserted.rows[0].exception_reason,
-      message: validation.message || ''
+      message: validation.message || '',
+      meal_type: normalizedMealType,
+      meal_city: mealCity
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1153,7 +1122,6 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const totalUsers = await query(
       `SELECT COUNT(*)::int AS count FROM users WHERE role = 'employee'`
@@ -1207,7 +1175,6 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const { employeeCode = '', fromDate = '', toDate = '', approvalStatus = '' } = req.query;
 
@@ -1308,13 +1275,11 @@ app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, r
          action_label,
          is_edited,
          edited_at,
-         edited_by,
-         meal_type,
-         meal_city
+         edited_by
        )
        VALUES (
          $1,$2,$3,$4,'','','ok','','',$5::timestamp,NOW(),
-         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7,'',''
+         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7
        )
        RETURNING *`,
       [
@@ -1593,13 +1558,17 @@ app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, r
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const { month } = req.query;
 
     if (!month) {
       return res.status(400).json({ error: 'חסר חודש' });
     }
+
+    const settings = await getSettingsRow();
+    const breakfastCost = Number(settings.breakfast_cost || 0);
+    const lunchCost = Number(settings.lunch_cost || 0);
+    const dinnerCost = Number(settings.dinner_cost || 0);
 
     const result = await query(
       `SELECT
@@ -1610,12 +1579,15 @@ app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, r
          MAX(CASE WHEN ar.record_type = 'out' THEN ar.record_time END) AS last_out,
          STRING_AGG(DISTINCT ar.work_day_type, ', ') AS work_day_types,
          BOOL_OR(ar.auto_closed = 1) AS has_auto_closed,
-         BOOL_OR(ar.requires_admin_approval = 1) AS has_pending_approval
+         BOOL_OR(ar.requires_admin_approval = 1) AS has_pending_approval,
+         COUNT(*) FILTER (WHERE ar.meal_type = 'breakfast')::int AS breakfast_count,
+         COUNT(*) FILTER (WHERE ar.meal_type = 'lunch')::int AS lunch_count,
+         COUNT(*) FILTER (WHERE ar.meal_type = 'dinner')::int AS dinner_count
        FROM attendance_records ar
        JOIN users u ON u.id = ar.user_id
        WHERE TO_CHAR(ar.record_time, 'YYYY-MM') = $1
        GROUP BY u.employee_code, u.full_name, DATE(ar.record_time)
-       ORDER BY work_date DESC`,
+       ORDER BY work_date DESC, u.full_name ASC`,
       [month]
     );
 
@@ -1627,7 +1599,25 @@ app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, r
           (new Date(r.last_out) - new Date(r.first_in)) / 3600000
         ).toFixed(2);
       }
-      return { ...r, totalHours };
+
+      const breakfast_count = Number(r.breakfast_count || 0);
+      const lunch_count = Number(r.lunch_count || 0);
+      const dinner_count = Number(r.dinner_count || 0);
+      const breakfast_total = breakfast_count * breakfastCost;
+      const lunch_total = lunch_count * lunchCost;
+      const dinner_total = dinner_count * dinnerCost;
+
+      return {
+        ...r,
+        totalHours,
+        breakfast_cost: breakfastCost,
+        lunch_cost: lunchCost,
+        dinner_cost: dinnerCost,
+        breakfast_total,
+        lunch_total,
+        dinner_total,
+        meals_total: breakfast_total + lunch_total + dinner_total
+      };
     });
 
     res.json(rows);
@@ -2120,7 +2110,10 @@ app.get('/api/admin/settings', authRequired, adminRequired, async (req, res) => 
 
     res.json({
       ...settings,
-      work_day_types: parseWorkDayTypes(settings.work_day_types)
+      work_day_types: parseWorkDayTypes(settings.work_day_types),
+      breakfast_cost: Number(settings.breakfast_cost || 0),
+      lunch_cost: Number(settings.lunch_cost || 0),
+      dinner_cost: Number(settings.dinner_cost || 0)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2138,13 +2131,19 @@ app.put('/api/admin/settings', authRequired, adminRequired, async (req, res) => 
        SET prevent_double_checkin = $1,
            prevent_checkout_without_checkin = $2,
            allow_multiple_sessions_per_day = $3,
-           work_day_types = $4
+           work_day_types = $4,
+           breakfast_cost = $5,
+           lunch_cost = $6,
+           dinner_cost = $7
        WHERE id = 1`,
       [
         req.body.prevent_double_checkin ? 1 : 0,
         req.body.prevent_checkout_without_checkin ? 1 : 0,
         req.body.allow_multiple_sessions_per_day ? 1 : 0,
-        JSON.stringify(workDayTypes.length ? workDayTypes : DEFAULT_WORK_DAY_TYPES)
+        JSON.stringify(workDayTypes.length ? workDayTypes : DEFAULT_WORK_DAY_TYPES),
+        Number(req.body.breakfast_cost || 0),
+        Number(req.body.lunch_cost || 0),
+        Number(req.body.dinner_cost || 0)
       ]
     );
 
@@ -2158,7 +2157,6 @@ app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const result = await query(
       `SELECT
@@ -2228,7 +2226,6 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
-    await ensureMissingCheckoutAlerts();
 
     const selectedDate = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
     const groupId = req.query.groupId ? parseInt(req.query.groupId, 10) : null;

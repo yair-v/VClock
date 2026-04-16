@@ -6,6 +6,19 @@ function currentMonthValue() {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function formatWorkDate(value) {
+  if (!value) return '-';
+  try {
+    return new Date(value).toLocaleDateString('he-IL');
+  } catch {
+    return value;
+  }
+}
+
+function formatMoney(value) {
+  return Number(value || 0).toFixed(2);
+}
+
 export default function AdminMonthlyPage() {
   const [month, setMonth] = useState(currentMonthValue());
   const [rows, setRows] = useState([]);
@@ -47,21 +60,29 @@ export default function AdminMonthlyPage() {
               <th>כניסה ראשונה</th>
               <th>יציאה אחרונה</th>
               <th>סה"כ שעות</th>
+              <th>בוקר</th>
+              <th>צהריים</th>
+              <th>ערב</th>
+              <th>סה"כ ארוחות</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => (
               <tr key={`${row.employee_code}_${row.work_date}_${index}`}>
-                <td>{row.work_date}</td>
+                <td>{formatWorkDate(row.work_date)}</td>
                 <td>{row.full_name}</td>
                 <td>{row.employee_code}</td>
                 <td>{row.first_in ? new Date(row.first_in).toLocaleTimeString('he-IL') : '-'}</td>
                 <td>{row.last_out ? new Date(row.last_out).toLocaleTimeString('he-IL') : '-'}</td>
                 <td>{row.totalHours || '-'}</td>
+                <td>{row.breakfast_count || 0} / ₪{formatMoney(row.breakfast_total)}</td>
+                <td>{row.lunch_count || 0} / ₪{formatMoney(row.lunch_total)}</td>
+                <td>{row.dinner_count || 0} / ₪{formatMoney(row.dinner_total)}</td>
+                <td>₪{formatMoney(row.meals_total)}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="6" className="empty-cell">אין נתונים לחודש הזה</td></tr>
+              <tr><td colSpan="10" className="empty-cell">אין נתונים לחודש הזה</td></tr>
             )}
           </tbody>
         </table>

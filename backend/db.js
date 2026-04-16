@@ -46,6 +46,41 @@ async function ensurePeriodLocksSchema() {
     ALTER TABLE attendance_records
     ADD COLUMN IF NOT EXISTS edited_by INTEGER NULL
   `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS meal_type TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS meal_city TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS meal_latitude TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS meal_longitude TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS breakfast_cost NUMERIC(10,2) NOT NULL DEFAULT 0
+  `);
+
+  await query(`
+    ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS lunch_cost NUMERIC(10,2) NOT NULL DEFAULT 0
+  `);
+
+  await query(`
+    ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS dinner_cost NUMERIC(10,2) NOT NULL DEFAULT 0
+  `);
 }
 
 async function ensureSeedData() {
@@ -73,49 +108,6 @@ async function ensureSeedData() {
       ['admin', 'System Admin', hash, 'admin', 1, 0, '[]', 1]
     );
   }
-
-  const employee = await query(
-    'SELECT id FROM users WHERE employee_code = $1',
-    ['1001']
-  );
-
-  if (employee.rows.length === 0) {
-    const hash = await bcrypt.hash('1234', 10);
-    await query(
-      `INSERT INTO users
-       (
-         employee_code,
-         full_name,
-         password_hash,
-         role,
-         is_active,
-         day_closed,
-         allowed_work_days,
-         friday_rotation_anchor_date,
-         friday_rotation_start_allowed
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_DATE, $8)`,
-      ['1001', 'Demo Employee', hash, 'employee', 1, 0, '[]', 1]
-    );
-  }
-
-  await query(
-    `INSERT INTO work_groups (name, description, work_days, is_active)
-     VALUES
-       ('ראשון-חמישי', 'קבוצת עבודה רגילה', '["ראשון","שני","שלישי","רביעי","חמישי"]', 1),
-       ('ראשון-שישי', 'קבוצת עבודה מורחבת', '["ראשון","שני","שלישי","רביעי","חמישי","שישי"]', 1)
-     ON CONFLICT (name) DO NOTHING`
-  );
-
-  await query(
-    `UPDATE users
-     SET work_group_id = wg.id
-     FROM work_groups wg
-     WHERE users.employee_code = '1001'
-       AND users.role = 'employee'
-       AND users.work_group_id IS NULL
-       AND wg.name = 'ראשון-חמישי'`
-  );
 }
 
 async function initDb() {
@@ -155,7 +147,7 @@ async function initDb() {
       prevent_double_checkin INTEGER NOT NULL DEFAULT 1,
       prevent_checkout_without_checkin INTEGER NOT NULL DEFAULT 1,
       allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1,
-      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחת בוקר","ארוחת צהריים","ארוחת ערב","אחר"]'
+      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
     )
   `);
 
@@ -343,35 +335,9 @@ async function initDb() {
     ADD COLUMN IF NOT EXISTS calendar_holiday_type TEXT NOT NULL DEFAULT ''
   `);
 
-
-  await query(`
-    ALTER TABLE attendance_records
-    ADD COLUMN IF NOT EXISTS missing_checkout BOOLEAN NOT NULL DEFAULT FALSE
-  `);
-
-  await query(`
-    ALTER TABLE attendance_records
-    ADD COLUMN IF NOT EXISTS missing_checkout_note TEXT NOT NULL DEFAULT ''
-  `);
-
-  await query(`
-    ALTER TABLE attendance_records
-    ADD COLUMN IF NOT EXISTS missing_checkout_logged_at TIMESTAMP NULL
-  `);
-
-  await query(`
-    ALTER TABLE attendance_records
-    ADD COLUMN IF NOT EXISTS meal_type TEXT NOT NULL DEFAULT ''
-  `);
-
-  await query(`
-    ALTER TABLE attendance_records
-    ADD COLUMN IF NOT EXISTS meal_city TEXT NOT NULL DEFAULT ''
-  `);
-
   await query(`
     ALTER TABLE settings
-    ADD COLUMN IF NOT EXISTS work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחת בוקר","ארוחת צהריים","ארוחת ערב","אחר"]'
+    ADD COLUMN IF NOT EXISTS work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
   `);
 
   await query(`
@@ -397,14 +363,20 @@ async function initDb() {
       prevent_double_checkin,
       prevent_checkout_without_checkin,
       allow_multiple_sessions_per_day,
-      work_day_types
+      work_day_types,
+      breakfast_cost,
+      lunch_cost,
+      dinner_cost
     )
     VALUES (
       1,
       1,
       1,
       1,
-      '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחת בוקר","ארוחת צהריים","ארוחת ערב","אחר"]'
+      '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]',
+      0,
+      0,
+      0
     )
     ON CONFLICT (id) DO UPDATE SET
       work_day_types = EXCLUDED.work_day_types

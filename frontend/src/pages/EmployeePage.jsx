@@ -12,9 +12,7 @@ const defaultWorkDayOptions = [
   'מחלת משפחה',
   'מילואים',
   'עבודה מהבית',
-  'ארוחת בוקר',
-  'ארוחת צהריים',
-  'ארוחת ערב',
+  'ארוחה',
   'אחר'
 ];
 
@@ -25,6 +23,21 @@ function normalizeUser(user) {
     fullName: user.fullName || user.full_name || '',
     employeeCode: user.employeeCode || user.employee_code || ''
   };
+}
+
+function MealCheckbox({ label, value, selectedValue, onChange }) {
+  const checked = selectedValue === value;
+
+  return (
+    <label className="checkbox-row" style={{ minWidth: 140 }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => onChange(checked ? '' : value)}
+      />
+      <span>{label}</span>
+    </label>
+  );
 }
 
 export default function EmployeePage() {
@@ -70,8 +83,6 @@ export default function EmployeePage() {
     return () => window.clearInterval(interval);
   }, []);
 
-
-
   function getLocation() {
     return new Promise((resolve) => {
       if (!navigator.geolocation) {
@@ -111,12 +122,23 @@ export default function EmployeePage() {
         recordType,
         workDayType,
         note,
-        mealType,
+        meal_type: mealType,
         latitude: location.latitude,
         longitude: location.longitude,
         location_status: location.location_status
       });
-      setMessage(data.message || 'הדיווח נשמר בהצלחה');
+
+      let successMessage = data.message || 'הדיווח נשמר בהצלחה';
+      if (mealType && data.meal_city) {
+        const mealLabel = mealType === 'breakfast'
+          ? 'ארוחת בוקר'
+          : mealType === 'lunch'
+            ? 'ארוחת צהריים'
+            : 'ארוחת ערב';
+        successMessage = `${successMessage} | ${mealLabel}${data.meal_city ? ` (${data.meal_city})` : ''}`;
+      }
+
+      setMessage(successMessage);
       setNote('');
       setMealType('');
       await loadStatus();
@@ -153,29 +175,19 @@ export default function EmployeePage() {
             </select>
           </label>
 
+          <div>
+            <span style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>ארוחה</span>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <MealCheckbox label="ארוחת בוקר" value="breakfast" selectedValue={mealType} onChange={setMealType} />
+              <MealCheckbox label="ארוחת צהריים" value="lunch" selectedValue={mealType} onChange={setMealType} />
+              <MealCheckbox label="ארוחת ערב" value="dinner" selectedValue={mealType} onChange={setMealType} />
+            </div>
+          </div>
+
           <label>
             <span>הערה</span>
             <textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} placeholder="הערה חופשית" />
           </label>
-
-          <div className="helper-box" style={{ marginTop: 4 }}>
-            <strong>סימון ארוחה</strong>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10 }}>
-              {['ארוחת בוקר', 'ארוחת צהריים', 'ארוחת ערב'].map((item) => (
-                <label key={item} className="checkbox-row" style={{ margin: 0 }}>
-                  <input
-                    type="checkbox"
-                    checked={mealType === item}
-                    onChange={(e) => setMealType(e.target.checked ? item : '')}
-                  />
-                  <span>{item}</span>
-                </label>
-              ))}
-            </div>
-            <div style={{ marginTop: 8, color: '#5c7797' }}>
-              אם מסומנת ארוחה, המערכת תשמור גם את המיקום והעיר הקרובה.
-            </div>
-          </div>
 
           {message && <div className="alert success">{message}</div>}
           {error && <div className="alert error">{error}</div>}
