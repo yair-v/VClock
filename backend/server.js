@@ -1093,6 +1093,114 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
   }
 });
 
+app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, res) => {
+  try {
+    await ensureMonthlyLock();
+
+    const {
+      user_id,
+      record_type,
+      work_day_type,
+      note,
+      manager_note,
+      record_time
+    } = req.body;
+
+    if (!user_id || !record_type || !work_day_type || !record_time) {
+      return res.status(400).json({ error: 'יש למלא עובד, סוג דיווח, סוג יום ותאריך' });
+    }
+
+    if (!['in', 'out'].includes(record_type)) {
+      return res.status(400).json({ error: 'סוג דיווח לא תקין' });
+    }
+
+    const userRes = await query(
+      `SELECT id, full_name, employee_code, is_active
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [user_id]
+    );
+
+    const user = userRes.rows[0];
+    if (!user) {
+      return res.status(404).json({ error: 'העובד לא נמצא' });
+    }
+
+    if (!user.is_active) {
+      return res.status(400).json({ error: 'לא ניתן ליצור דיווח לעובד חסום' });
+    }
+
+    const monthKey = getMonthKeyFromDateValue(record_time);
+    if (await isMonthLocked(monthKey)) {
+      return res.status(403).json({ error: 'החודש נעול. יש לשחרר את הנעילה לפני יצירת דיווח.' });
+    }
+
+    const inserted = await query(
+      `INSERT INTO attendance_records
+       (
+         user_id,
+         record_type,
+         work_day_type,
+         note,
+         latitude,
+         longitude,
+         location_status,
+         ip_address,
+         device_info,
+         record_time,
+         created_at,
+         approval_status,
+         requires_admin_approval,
+         exception_reason,
+         manager_note,
+         auto_closed,
+         source_action,
+         action_label,
+         is_edited,
+         edited_at,
+         edited_by
+       )
+       VALUES (
+         $1,$2,$3,$4,'','','ok','','',$5::timestamp,NOW(),
+         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7
+       )
+       RETURNING *`,
+      [
+        user_id,
+        record_type,
+        work_day_type,
+        note || '',
+        record_time,
+        manager_note || 'נוצר ידנית על ידי מנהל',
+        req.user.id
+      ]
+    );
+
+    if (record_type === 'out') {
+      await query(
+        `UPDATE users
+         SET day_closed = 1
+         WHERE id = $1`,
+        [user_id]
+      );
+    }
+
+    await logAction({
+      userId: user_id,
+      attendanceRecordId: inserted.rows[0].id,
+      actionType: 'attendance_create_manual',
+      actionTitle: 'יצירת דיווח ידני',
+      details: `המנהל יצר דיווח ${record_type} עבור ${user.full_name} בתאריך ${record_time} | סוג יום: ${work_day_type}${note ? ` | הערה: ${note}` : ''}`,
+      createdByUserId: req.user.id
+    });
+
+    res.json({ success: true, record: inserted.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/admin/action-logs', authRequired, adminRequired, async (req, res) => {
   try {
     const { employeeCode = '', fromDate = '', toDate = '' } = req.query;

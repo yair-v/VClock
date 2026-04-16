@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiGet, apiPut, exportExcel } from '../services/api';
+import { apiGet, apiPost, apiPut, exportExcel } from '../services/api';
 
 const workDayOptions = [
   'יום רגיל',
@@ -33,6 +33,21 @@ function formatForDateTimeLocal(value) {
   return local.toISOString().slice(0, 16);
 }
 
+function defaultNewReport() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+
+  return {
+    user_id: '',
+    record_type: 'in',
+    work_day_type: 'יום רגיל',
+    note: '',
+    manager_note: 'נוצר ידנית על ידי מנהל',
+    record_time: local.toISOString().slice(0, 16)
+  };
+}
+
 export default function AdminReportsPage() {
   const [filters, setFilters] = useState({
     employeeCode: '',
@@ -40,10 +55,13 @@ export default function AdminReportsPage() {
     dateTo: ''
   });
   const [rows, setRows] = useState([]);
+  const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newReport, setNewReport] = useState(defaultNewReport());
   const [editForm, setEditForm] = useState({
     work_day_type: '',
     note: '',
@@ -61,6 +79,15 @@ export default function AdminReportsPage() {
     return params.toString() ? `?${params.toString()}` : '';
   }
 
+  async function loadUsers() {
+    try {
+      const data = await apiGet('/admin/users');
+      setUsers(Array.isArray(data) ? data : []);
+    } catch {
+      setUsers([]);
+    }
+  }
+
   async function loadData() {
     setError('');
     try {
@@ -72,6 +99,7 @@ export default function AdminReportsPage() {
   }
 
   useEffect(() => {
+    loadUsers();
     loadData();
   }, []);
 
@@ -128,8 +156,119 @@ export default function AdminReportsPage() {
     }
   }
 
+  async function createReport(e) {
+    e.preventDefault();
+    setCreating(true);
+    setMessage('');
+    setError('');
+
+    try {
+      await apiPost('/admin/reports/manual', {
+        user_id: Number(newReport.user_id),
+        record_type: newReport.record_type,
+        work_day_type: newReport.work_day_type,
+        note: newReport.note,
+        manager_note: newReport.manager_note,
+        record_time: newReport.record_time
+          ? new Date(newReport.record_time).toISOString()
+          : null
+      });
+
+      setMessage('הדיווח נוצר בהצלחה');
+      setNewReport(defaultNewReport());
+      await loadData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className="card-page">
+      <div className="table-card" style={{ marginBottom: 18 }}>
+        <div className="section-title">הוספת דיווח לעובד על ידי מנהל</div>
+
+        <form className="form-grid" onSubmit={createReport}>
+          <label>
+            <span>עובד</span>
+            <select
+              value={newReport.user_id}
+              onChange={(e) => setNewReport({ ...newReport, user_id: e.target.value })}
+            >
+              <option value="">בחר עובד</option>
+              {users
+                .filter((u) => u.role === 'employee')
+                .map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name} ({user.employee_code})
+                  </option>
+                ))}
+            </select>
+          </label>
+
+          <label>
+            <span>סוג דיווח</span>
+            <select
+              value={newReport.record_type}
+              onChange={(e) => setNewReport({ ...newReport, record_type: e.target.value })}
+            >
+              <option value="in">כניסה</option>
+              <option value="out">יציאה</option>
+            </select>
+          </label>
+
+          <label>
+            <span>סוג יום</span>
+            <select
+              value={newReport.work_day_type}
+              onChange={(e) => setNewReport({ ...newReport, work_day_type: e.target.value })}
+            >
+              {workDayOptions.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>תאריך ושעה</span>
+            <input
+              type="datetime-local"
+              value={newReport.record_time}
+              onChange={(e) => setNewReport({ ...newReport, record_time: e.target.value })}
+            />
+          </label>
+
+          <label>
+            <span>הערה</span>
+            <input
+              value={newReport.note}
+              onChange={(e) => setNewReport({ ...newReport, note: e.target.value })}
+            />
+          </label>
+
+          <label>
+            <span>הערת מנהל</span>
+            <input
+              value={newReport.manager_note}
+              onChange={(e) => setNewReport({ ...newReport, manager_note: e.target.value })}
+            />
+          </label>
+
+          <div className="action-buttons">
+            <button
+              className="primary-btn"
+              type="submit"
+              disabled={creating || !newReport.user_id || !newReport.record_time}
+            >
+              {creating ? 'יוצר...' : 'הוסף דיווח'}
+            </button>
+          </div>
+        </form>
+      </div>
+
       <div className="section-header">
         <h2>כל הדיווחים</h2>
         <div className="inline-actions">
