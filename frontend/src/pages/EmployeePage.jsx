@@ -33,6 +33,7 @@ export default function EmployeePage() {
   const [workDayType, setWorkDayType] = useState('יום רגיל');
   const [note, setNote] = useState('');
   const [now, setNow] = useState(new Date());
+  const [locationLoading, setLocationLoading] = useState(false);
 
   const user = useMemo(() => {
     try {
@@ -66,16 +67,50 @@ export default function EmployeePage() {
     return () => window.clearInterval(interval);
   }, []);
 
+
+
+  function getLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({ latitude: '', longitude: '', location_status: 'unsupported' });
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: String(position.coords.latitude || ''),
+            longitude: String(position.coords.longitude || ''),
+            location_status: 'ok'
+          });
+        },
+        () => {
+          resolve({ latitude: '', longitude: '', location_status: 'denied' });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 0
+        }
+      );
+    });
+  }
+
   async function submitRecord(recordType) {
     setError('');
     setMessage('');
     setLoading(true);
+    setLocationLoading(true);
 
     try {
+      const location = await getLocation();
       const data = await apiPost('/attendance', {
         recordType,
         workDayType,
-        note
+        note,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        location_status: location.location_status
       });
       setMessage(data.message || 'הדיווח נשמר בהצלחה');
       setNote('');
@@ -84,6 +119,7 @@ export default function EmployeePage() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setLocationLoading(false);
     }
   }
 
@@ -119,6 +155,7 @@ export default function EmployeePage() {
 
           {message && <div className="alert success">{message}</div>}
           {error && <div className="alert error">{error}</div>}
+          {locationLoading && <div className="alert">מנסה לקבל מיקום מהמכשיר...</div>}
 
           <div className="action-row">
             <button className="primary-btn" disabled={loading} onClick={() => submitRecord('in')}>כניסה לעבודה</button>

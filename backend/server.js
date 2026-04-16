@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const app = express();
 
@@ -169,6 +171,46 @@ function isSpecialAutoCloseType(workDayType) {
 function buildActionTitle(recordType, workDayType) {
   const direction = recordType === 'in' ? 'פתיחה' : 'סגירה';
   return `${direction} - ${workDayType}`;
+}
+
+
+function getMonthKeyFromDateValue(value) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getPreviousMonthKeyByIsraelDate(dateString) {
+  const [year, month] = dateString.split('-').map(Number);
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return `${prevYear}-${String(prevMonth).padStart(2, '0')}`;
+}
+
+async function ensureMonthlyLock() {
+  const now = getNowInIsrael();
+  if (now.day < 10) return;
+
+  const prevMonthKey = getPreviousMonthKeyByIsraelDate(now.dateString);
+
+  await query(
+    `INSERT INTO period_locks (month_key, is_locked, locked_at)
+     VALUES ($1, TRUE, NOW())
+     ON CONFLICT (month_key) DO NOTHING`,
+    [prevMonthKey]
+  );
+}
+
+async function isMonthLocked(monthKey) {
+  const result = await query(
+    `SELECT id
+     FROM period_locks
+     WHERE month_key = $1
+       AND is_locked = TRUE
+     LIMIT 1`,
+    [monthKey]
+  );
+
+  return Boolean(result.rows[0]);
 }
 
 async function getSettingsRow() {
@@ -743,6 +785,7 @@ app.post('/api/2fa/verify-login', async (req, res) => {
 
 app.get('/api/my-status', authRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const user = await resolveUserSchedule(req.user.id);
@@ -789,6 +832,7 @@ app.get('/api/my-status', authRequired, async (req, res) => {
 
 app.get('/api/my-records', authRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const { start, end } = getWorkdayWindow();
@@ -811,6 +855,7 @@ app.get('/api/my-records', authRequired, async (req, res) => {
 
 app.get('/api/my-records-export', authRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const result = await query(
@@ -863,6 +908,7 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
 
 app.post('/api/attendance', authRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const {
@@ -880,6 +926,11 @@ app.post('/api/attendance', authRequired, async (req, res) => {
 
     if (!workDayType) {
       return res.status(400).json({ error: 'יש לבחור סוג יום עבודה' });
+    }
+
+    const monthKey = getMonthKeyFromDateValue(new Date());
+    if (await isMonthLocked(monthKey)) {
+      return res.status(403).json({ error: 'החודש נעול לדיווח. יש לפנות למנהל.' });
     }
 
     const user = await resolveUserSchedule(req.user.id);
@@ -1011,6 +1062,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
 
 app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const totalUsers = await query(
@@ -1045,13 +1097,16 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
        ORDER BY full_name ASC`
     );
 
+    const monthLocks = await query(`SELECT * FROM period_locks ORDER BY month_key DESC LIMIT 12`);
+
     res.json({
       totalUsers: totalUsers.rows[0].count,
       activeUsers: activeUsers.rows[0].count,
       totalRecords: totalRecords.rows[0].count,
       todayRecords: todayRecords.rows[0].count,
       pendingApprovals: pendingApprovals.rows[0].count,
-      actionRequests: actionRequests.rows
+      actionRequests: actionRequests.rows,
+      monthLocks: monthLocks.rows
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1060,6 +1115,7 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
 
 app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const { employeeCode = '', fromDate = '', toDate = '', approvalStatus = '' } = req.query;
@@ -1092,6 +1148,8 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
 
 app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, res) => {
   try {
@@ -1241,6 +1299,18 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
       record_time
     } = req.body;
 
+    const currentRes = await query(`SELECT * FROM attendance_records WHERE id = $1`, [id]);
+    const current = currentRes.rows[0];
+
+    if (!current) {
+      return res.status(404).json({ error: 'הרשומה לא נמצאה' });
+    }
+
+    const originalMonthKey = getMonthKeyFromDateValue(current.record_time);
+    if (await isMonthLocked(originalMonthKey)) {
+      return res.status(403).json({ error: 'החודש נעול. יש לשחרר את הנעילה לפני עריכה.' });
+    }
+
     const normalizedApproval = ['approved', 'rejected', 'pending'].includes(approval_status)
       ? approval_status
       : null;
@@ -1248,7 +1318,15 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
       ? record_type
       : null;
 
-    await query(
+    const nextRecordTime = record_time || null;
+    if (nextRecordTime) {
+      const targetMonthKey = getMonthKeyFromDateValue(nextRecordTime);
+      if (await isMonthLocked(targetMonthKey)) {
+        return res.status(403).json({ error: 'חודש היעד נעול. יש לשחרר את הנעילה לפני שמירה.' });
+      }
+    }
+
+    const updatedRes = await query(
       `UPDATE attendance_records
        SET work_day_type = COALESCE($1, work_day_type),
            note = COALESCE($2, note),
@@ -1256,21 +1334,25 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
            approval_status = COALESCE($4, approval_status),
            requires_admin_approval = CASE WHEN COALESCE($4, approval_status) = 'pending' THEN 1 ELSE 0 END,
            record_type = COALESCE($5, record_type),
-           record_time = COALESCE($6::timestamp, record_time)
-       WHERE id = $7`,
+           record_time = COALESCE($6::timestamp, record_time),
+           is_edited = TRUE,
+           edited_at = NOW(),
+           edited_by = $7
+       WHERE id = $8
+       RETURNING *`,
       [
         work_day_type || null,
         typeof note === 'string' ? note : null,
         typeof manager_note === 'string' ? manager_note : null,
         normalizedApproval,
         normalizedRecordType,
-        record_time || null,
+        nextRecordTime,
+        req.user.id,
         id
       ]
     );
 
-    const recordRes = await query(`SELECT user_id FROM attendance_records WHERE id = $1`, [id]);
-    const record = recordRes.rows[0];
+    const record = updatedRes.rows[0];
 
     await logAction({
       userId: record ? record.user_id : null,
@@ -1281,7 +1363,7 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
       createdByUserId: req.user.id
     });
 
-    res.json({ success: true });
+    res.json({ success: true, record });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1416,6 +1498,7 @@ app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, asyn
 
 app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const { month } = req.query;
@@ -1471,16 +1554,13 @@ app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          u.day_closed,
          u.created_at,
          u.work_group_id,
-         u.department_id,
          u.allowed_work_days,
          u.friday_rotation_anchor_date,
          u.friday_rotation_start_allowed,
          wg.name AS work_group_name,
-         wg.work_days AS work_group_days,
-         d.name AS department_name
+         wg.work_days AS work_group_days
        FROM users u
        LEFT JOIN work_groups wg ON wg.id = u.work_group_id
-       LEFT JOIN departments d ON d.id = u.department_id
        ORDER BY u.employee_code ASC`
     );
 
@@ -1503,7 +1583,6 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       role,
       is_active,
       work_group_id,
-      department_id,
       allowed_work_days,
       friday_rotation_anchor_date,
       friday_rotation_start_allowed
@@ -1532,12 +1611,11 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          day_closed,
          created_at,
          work_group_id,
-         department_id,
          allowed_work_days,
          friday_rotation_anchor_date,
          friday_rotation_start_allowed
        )
-       VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7,$8,$9,$10,$11)`,
+       VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7,$8,$9,$10)`,
       [
         String(employee_code),
         String(full_name),
@@ -1546,7 +1624,6 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
         is_active ? 1 : 0,
         0,
         work_group_id ? parseInt(work_group_id, 10) : null,
-        department_id ? parseInt(department_id, 10) : null,
         JSON.stringify(normalizeWeekDays(allowed_work_days)),
         friday_rotation_anchor_date || getNowInIsrael().dateString,
         friday_rotation_start_allowed ? 1 : 0
@@ -1570,7 +1647,6 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       is_active,
       day_closed,
       work_group_id,
-      department_id,
       allowed_work_days,
       friday_rotation_anchor_date,
       friday_rotation_start_allowed
@@ -1597,9 +1673,6 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
     const nextWorkGroupId = typeof work_group_id !== 'undefined'
       ? (work_group_id ? parseInt(work_group_id, 10) : null)
       : user.work_group_id;
-    const nextDepartmentId = typeof department_id !== 'undefined'
-      ? (department_id ? parseInt(department_id, 10) : null)
-      : user.department_id;
     const nextAllowedWorkDays = typeof allowed_work_days !== 'undefined'
       ? JSON.stringify(normalizeWeekDays(allowed_work_days))
       : user.allowed_work_days;
@@ -1632,11 +1705,10 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
            is_active = $5,
            day_closed = $6,
            work_group_id = $7,
-           department_id = $8,
-           allowed_work_days = $9,
-           friday_rotation_anchor_date = $10,
-           friday_rotation_start_allowed = $11
-       WHERE id = $12`,
+           allowed_work_days = $8,
+           friday_rotation_anchor_date = $9,
+           friday_rotation_start_allowed = $10
+       WHERE id = $11`,
       [
         nextEmployeeCode,
         nextName,
@@ -1645,7 +1717,6 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
         nextActive,
         nextClosed,
         nextWorkGroupId,
-        nextDepartmentId,
         nextAllowedWorkDays,
         nextFridayAnchorDate,
         nextFridayStartAllowed,
@@ -1756,100 +1827,28 @@ app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res)
 });
 
 
-app.get('/api/admin/departments', authRequired, adminRequired, async (req, res) => {
+
+app.post('/api/admin/period-locks/:monthKey/release', authRequired, adminRequired, async (req, res) => {
   try {
-    const result = await query(
-      `SELECT
-         d.*,
-         (
-           SELECT COUNT(*)::int
-           FROM users u
-           WHERE u.department_id = d.id
-         ) AS users_count
-       FROM departments d
-       ORDER BY d.name ASC`
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/departments', authRequired, adminRequired, async (req, res) => {
-  try {
-    const name = String(req.body.name || '').trim();
-    const description = String(req.body.description || '').trim();
-    const isActive = req.body.is_active ? 1 : 0;
-
-    if (!name) {
-      return res.status(400).json({ error: 'יש להזין שם מחלקה' });
-    }
+    const monthKey = String(req.params.monthKey || '').trim();
 
     await query(
-      `INSERT INTO departments (name, description, is_active, created_at)
-       VALUES ($1, $2, $3, NOW())`,
-      [name, description, typeof req.body.is_active === 'undefined' ? 1 : isActive]
+      `UPDATE period_locks
+       SET is_locked = FALSE,
+           released_at = NOW(),
+           released_by = $1
+       WHERE month_key = $2`,
+      [req.user.id, monthKey]
     );
 
-    res.json({ success: true });
-  } catch (err) {
-    if (String(err.message || '').includes('duplicate key')) {
-      return res.status(400).json({ error: 'שם המחלקה כבר קיים' });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/admin/departments/:id', authRequired, adminRequired, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const name = String(req.body.name || '').trim();
-    const description = String(req.body.description || '').trim();
-    const isActive = req.body.is_active ? 1 : 0;
-
-    if (!name) {
-      return res.status(400).json({ error: 'יש להזין שם מחלקה' });
-    }
-
-    await query(
-      `UPDATE departments
-       SET name = $1,
-           description = $2,
-           is_active = $3
-       WHERE id = $4`,
-      [name, description, isActive, id]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    if (String(err.message || '').includes('duplicate key')) {
-      return res.status(400).json({ error: 'שם המחלקה כבר קיים' });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/admin/departments/:id', authRequired, adminRequired, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-
-    const used = await query(
-      `SELECT COUNT(*)::int AS count
-       FROM users
-       WHERE department_id = $1`,
-      [id]
-    );
-
-    if (used.rows[0] && used.rows[0].count > 0) {
-      return res.status(400).json({ error: 'לא ניתן למחוק מחלקה שמשויכת לעובדים' });
-    }
-
-    await query(
-      `DELETE FROM departments
-       WHERE id = $1`,
-      [id]
-    );
+    await logAction({
+      userId: null,
+      attendanceRecordId: null,
+      actionType: 'release_month_lock',
+      actionTitle: 'שחרור נעילת חודש',
+      details: `המנהל שחרר את נעילת החודש ${monthKey}`,
+      createdByUserId: req.user.id
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -2063,6 +2062,7 @@ app.put('/api/admin/settings', authRequired, adminRequired, async (req, res) => 
 
 app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const result = await query(
@@ -2131,6 +2131,7 @@ app.post('/api/admin/shutdown', authRequired, adminRequired, (req, res) => {
 
 app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, res) => {
   try {
+    await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
     const selectedDate = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
@@ -2240,8 +2241,8 @@ app.get('*', (req, res) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`VClock PostgreSQL running on port ${PORT}`);
+    app.listen(PORT, () => {
+      console.log(`VClock PostgreSQL running on http://localhost:${PORT}`);
     });
   })
   .catch((err) => {

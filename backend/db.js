@@ -18,6 +18,36 @@ async function query(sql, params = []) {
   return pool.query(sql, params);
 }
 
+
+
+async function ensurePeriodLocksSchema() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS period_locks (
+      id SERIAL PRIMARY KEY,
+      month_key TEXT UNIQUE NOT NULL,
+      is_locked BOOLEAN NOT NULL DEFAULT TRUE,
+      locked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      released_at TIMESTAMP NULL,
+      released_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL
+    )
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP NULL
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS edited_by INTEGER NULL
+  `);
+}
+
 async function ensureSeedData() {
   const admin = await query(
     'SELECT id FROM users WHERE employee_code = $1',
@@ -353,15 +383,28 @@ async function initDb() {
     ON CONFLICT (id) DO UPDATE SET
       work_day_types = EXCLUDED.work_day_types
   `);
+  await query(`
+      CREATE TABLE IF NOT EXISTS departments (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT DEFAULT '',
+        is_active INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+  // 🔥 שדה למחלקה אצל עובדים
+  await query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS department_id INTEGER
+    `);
 
   await query(`
     UPDATE users
     SET friday_rotation_anchor_date = COALESCE(friday_rotation_anchor_date, CURRENT_DATE)
   `);
 
-  await query(`CREATE TABLE IF NOT EXISTS departments (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT DEFAULT '', is_active INTEGER DEFAULT 1, created_at TIMESTAMP DEFAULT NOW())`);
-  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS department_id INTEGER NULL`);
-
+  await ensurePeriodLocksSchema();
   await ensureSeedData();
 }
 
