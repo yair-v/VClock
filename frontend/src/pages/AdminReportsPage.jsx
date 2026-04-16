@@ -61,6 +61,7 @@ export default function AdminReportsPage() {
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [newReport, setNewReport] = useState(defaultNewReport());
   const [editForm, setEditForm] = useState({
     work_day_type: '',
@@ -156,6 +157,18 @@ export default function AdminReportsPage() {
     }
   }
 
+  function openCreateForm() {
+    setMessage('');
+    setError('');
+    setShowCreateForm(true);
+    setNewReport(defaultNewReport());
+  }
+
+  function closeCreateForm() {
+    setShowCreateForm(false);
+    setNewReport(defaultNewReport());
+  }
+
   async function createReport(e) {
     e.preventDefault();
     setCreating(true);
@@ -175,6 +188,7 @@ export default function AdminReportsPage() {
       });
 
       setMessage('הדיווח נוצר בהצלחה');
+      setShowCreateForm(false);
       setNewReport(defaultNewReport());
       await loadData();
     } catch (err) {
@@ -186,95 +200,21 @@ export default function AdminReportsPage() {
 
   return (
     <div className="card-page">
-      <div className="table-card" style={{ marginBottom: 18 }}>
-        <div className="section-title">הוספת דיווח לעובד על ידי מנהל</div>
-
-        <form className="form-grid" onSubmit={createReport}>
-          <label>
-            <span>עובד</span>
-            <select
-              value={newReport.user_id}
-              onChange={(e) => setNewReport({ ...newReport, user_id: e.target.value })}
-            >
-              <option value="">בחר עובד</option>
-              {users
-                .filter((u) => u.role === 'employee')
-                .map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.full_name} ({user.employee_code})
-                  </option>
-                ))}
-            </select>
-          </label>
-
-          <label>
-            <span>סוג דיווח</span>
-            <select
-              value={newReport.record_type}
-              onChange={(e) => setNewReport({ ...newReport, record_type: e.target.value })}
-            >
-              <option value="in">כניסה</option>
-              <option value="out">יציאה</option>
-            </select>
-          </label>
-
-          <label>
-            <span>סוג יום</span>
-            <select
-              value={newReport.work_day_type}
-              onChange={(e) => setNewReport({ ...newReport, work_day_type: e.target.value })}
-            >
-              {workDayOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            <span>תאריך ושעה</span>
-            <input
-              type="datetime-local"
-              value={newReport.record_time}
-              onChange={(e) => setNewReport({ ...newReport, record_time: e.target.value })}
-            />
-          </label>
-
-          <label>
-            <span>הערה</span>
-            <input
-              value={newReport.note}
-              onChange={(e) => setNewReport({ ...newReport, note: e.target.value })}
-            />
-          </label>
-
-          <label>
-            <span>הערת מנהל</span>
-            <input
-              value={newReport.manager_note}
-              onChange={(e) => setNewReport({ ...newReport, manager_note: e.target.value })}
-            />
-          </label>
-
-          <div className="action-buttons">
-            <button
-              className="primary-btn"
-              type="submit"
-              disabled={creating || !newReport.user_id || !newReport.record_time}
-            >
-              {creating ? 'יוצר...' : 'הוסף דיווח'}
-            </button>
-          </div>
-        </form>
-      </div>
-
       <div className="section-header">
         <h2>כל הדיווחים</h2>
         <div className="inline-actions">
           <button className="secondary-btn small" type="button" onClick={loadData}>
             חיפוש
           </button>
+
+          <button
+            className="primary-btn small"
+            type="button"
+            onClick={openCreateForm}
+          >
+            הוסף דיווח
+          </button>
+
           <button
             className="primary-btn small"
             type="button"
@@ -284,6 +224,100 @@ export default function AdminReportsPage() {
           </button>
         </div>
       </div>
+
+      {showCreateForm && (
+        <div className="table-card" style={{ marginBottom: 18 }}>
+          <div className="section-title">הוספת דיווח לעובד על ידי מנהל</div>
+
+          <form className="form-grid" onSubmit={createReport}>
+            <label>
+              <span>עובד</span>
+              <select
+                value={newReport.user_id}
+                onChange={(e) => setNewReport({ ...newReport, user_id: e.target.value })}
+              >
+                <option value="">בחר עובד</option>
+                {users
+                  .filter((u) => u.role === 'employee')
+                  .map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.full_name} ({user.employee_code})
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <label>
+              <span>סוג דיווח</span>
+              <select
+                value={newReport.record_type}
+                onChange={(e) => setNewReport({ ...newReport, record_type: e.target.value })}
+              >
+                <option value="in">כניסה</option>
+                <option value="out">יציאה</option>
+              </select>
+            </label>
+
+            <label>
+              <span>סוג יום</span>
+              <select
+                value={newReport.work_day_type}
+                onChange={(e) => setNewReport({ ...newReport, work_day_type: e.target.value })}
+              >
+                {workDayOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>תאריך ושעה</span>
+              <input
+                type="datetime-local"
+                value={newReport.record_time}
+                onChange={(e) => setNewReport({ ...newReport, record_time: e.target.value })}
+              />
+            </label>
+
+            <label>
+              <span>הערה</span>
+              <input
+                value={newReport.note}
+                onChange={(e) => setNewReport({ ...newReport, note: e.target.value })}
+              />
+            </label>
+
+            <label>
+              <span>הערת מנהל</span>
+              <input
+                value={newReport.manager_note}
+                onChange={(e) => setNewReport({ ...newReport, manager_note: e.target.value })}
+              />
+            </label>
+
+            <div className="action-buttons">
+              <button
+                className="primary-btn"
+                type="submit"
+                disabled={creating || !newReport.user_id || !newReport.record_time}
+              >
+                {creating ? 'יוצר...' : 'שמור דיווח'}
+              </button>
+
+              <button
+                className="secondary-btn"
+                type="button"
+                onClick={closeCreateForm}
+                disabled={creating}
+              >
+                ביטול
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <div className="filter-grid">
         <input
