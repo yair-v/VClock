@@ -1,4 +1,3 @@
-backend / db.js
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
