@@ -1,3 +1,4 @@
+backend / db.js
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 
@@ -17,8 +18,6 @@ const pool = new Pool({
 async function query(sql, params = []) {
   return pool.query(sql, params);
 }
-
-
 
 async function ensurePeriodLocksSchema() {
   await query(`
@@ -197,7 +196,6 @@ async function initDb() {
     ADD COLUMN IF NOT EXISTS day_closed INTEGER NOT NULL DEFAULT 0
   `);
 
-
   await query(`
     ALTER TABLE holidays
     ADD COLUMN IF NOT EXISTS holiday_type TEXT NOT NULL DEFAULT 'manual'
@@ -233,7 +231,6 @@ async function initDb() {
     ADD COLUMN IF NOT EXISTS source_year INTEGER NULL
   `);
 
-
   await query(`
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS allowed_work_days TEXT NOT NULL DEFAULT '[]'
@@ -253,7 +250,6 @@ async function initDb() {
     ALTER TABLE users
     ADD COLUMN IF NOT EXISTS friday_rotation_start_allowed INTEGER NOT NULL DEFAULT 1
   `);
-
 
   await query(`
     ALTER TABLE users
@@ -358,6 +354,31 @@ async function initDb() {
   `);
 
   await query(`
+    CREATE TABLE IF NOT EXISTS departments (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT DEFAULT '',
+      is_active INTEGER DEFAULT 1,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  // 🔥 שדה למחלקה אצל עובדים
+  await query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS department_id INTEGER
+  `);
+
+  await query(`
+    UPDATE users
+    SET friday_rotation_anchor_date = COALESCE(friday_rotation_anchor_date, CURRENT_DATE)
+  `);
+
+  // חשוב: קודם נוסיף את כל עמודות הנעילות/עריכות/ארוחות/עלויות
+  await ensurePeriodLocksSchema();
+
+  // ורק אחרי זה נכניס/נעדכן settings עם עמודות העלות
+  await query(`
     INSERT INTO settings (
       id,
       prevent_double_checkin,
@@ -381,28 +402,7 @@ async function initDb() {
     ON CONFLICT (id) DO UPDATE SET
       work_day_types = EXCLUDED.work_day_types
   `);
-  await query(`
-      CREATE TABLE IF NOT EXISTS departments (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        description TEXT DEFAULT '',
-        is_active INTEGER DEFAULT 1,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
 
-  // 🔥 שדה למחלקה אצל עובדים
-  await query(`
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS department_id INTEGER
-    `);
-
-  await query(`
-    UPDATE users
-    SET friday_rotation_anchor_date = COALESCE(friday_rotation_anchor_date, CURRENT_DATE)
-  `);
-
-  await ensurePeriodLocksSchema();
   await ensureSeedData();
 }
 
