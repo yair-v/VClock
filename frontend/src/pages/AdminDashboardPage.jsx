@@ -15,7 +15,23 @@ const DEFAULT_VISIBLE = {
   [CHART_KEYS.vacations]: true
 };
 
-const LEAVE_TYPES = ['חופשה', 'מחלה', 'מחלת משפחה', 'מילואים'];
+const DAY_TYPE_OPTIONS = [
+  'הכל',
+  'יום רגיל',
+  'שישי',
+  'שישי בתשלום',
+  'שבת',
+  'חג',
+  'חופשה',
+  'מחלה',
+  'מחלת משפחה',
+  'מילואים',
+  'עבודה מהבית',
+  'ארוחה',
+  'אחר'
+];
+
+const VACATION_TYPES = ['חופשה', 'מחלה', 'מחלת משפחה', 'מילואים'];
 
 function formatToday() {
   const d = new Date();
@@ -65,7 +81,7 @@ function EmptyState({ text }) {
   return <div style={{ color: '#5c7797', fontWeight: 700 }}>{text}</div>;
 }
 
-function ChartShell({ title, children }) {
+function SectionCard({ title, children }) {
   return (
     <div style={cardStyle()}>
       <div style={{ fontSize: 20, fontWeight: 900, marginBottom: 16 }}>{title}</div>
@@ -161,7 +177,9 @@ function HorizontalRanking({ rows }) {
         <div key={`${row.label}-${row.type}`} style={{ display: 'grid', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
             <strong>{row.label}</strong>
-            <span style={{ color: '#5c7797', fontWeight: 700 }}>{row.type} · {row.count}</span>
+            <span style={{ color: '#5c7797', fontWeight: 700 }}>
+              {row.type} · {row.count}
+            </span>
           </div>
           <div style={{ height: 12, background: '#eaf3fd', borderRadius: 999 }}>
             <div
@@ -206,6 +224,18 @@ function LeaveBars({ rows }) {
   );
 }
 
+function buildQuery(paramsObj) {
+  const params = new URLSearchParams();
+
+  Object.entries(paramsObj).forEach(([key, value]) => {
+    if (value !== '' && value !== null && value !== undefined) {
+      params.append(key, value);
+    }
+  });
+
+  return params.toString() ? `?${params.toString()}` : '';
+}
+
 function buildLatestPerUser(records) {
   const map = new Map();
 
@@ -222,14 +252,15 @@ function buildLatestPerUser(records) {
   return Array.from(map.values());
 }
 
+function getUserName(user) {
+  return user.full_name || user.fullName || '';
+}
+
 export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [date, setDate] = useState(formatToday());
-  const [departmentId, setDepartmentId] = useState('');
   const [departments, setDepartments] = useState([]);
   const [users, setUsers] = useState([]);
-  const [reports, setReports] = useState([]);
   const [dashboard, setDashboard] = useState({
     totalUsers: 0,
     activeUsers: 0,
@@ -238,18 +269,48 @@ export default function AdminDashboardPage() {
     pendingApprovals: 0,
     actionRequests: []
   });
-  const [sortDirection, setSortDirection] = useState('asc');
+
+  const [inOutRows, setInOutRows] = useState([]);
+  const [activeRows, setActiveRows] = useState([]);
+  const [rankingRowsSource, setRankingRowsSource] = useState([]);
+  const [vacationRowsSource, setVacationRowsSource] = useState([]);
+
   const { visible, toggle } = usePersistedVisible();
 
-  async function loadData() {
+  const [inOutFilters, setInOutFilters] = useState({
+    fromDate: formatToday(),
+    toDate: formatToday(),
+    employeeCode: ''
+  });
+
+  const [activeFilters, setActiveFilters] = useState({
+    date: formatToday(),
+    departmentId: ''
+  });
+
+  const [rankingFilters, setRankingFilters] = useState({
+    fromDate: formatToday(),
+    toDate: formatToday(),
+    employeeCode: '',
+    category: 'הכל',
+    sortDirection: 'asc'
+  });
+
+  const [vacationFilters, setVacationFilters] = useState({
+    fromDate: formatToday(),
+    toDate: formatToday(),
+    employeeCode: '',
+    category: 'הכל'
+  });
+
+  async function loadBaseData() {
     setLoading(true);
     setError('');
 
     try {
-      const [dashboardData, usersData, reportsData, departmentsData] = await Promise.all([
+      const [dashboardData, usersData, departmentsData] = await Promise.all([
         apiGet('/admin/dashboard'),
         apiGet('/admin/users'),
-        apiGet(`/admin/reports?fromDate=${date}&toDate=${date}`),
         apiGet('/admin/departments').catch(() => [])
       ]);
 
@@ -263,123 +324,194 @@ export default function AdminDashboardPage() {
       });
 
       setUsers(Array.isArray(usersData) ? usersData : []);
-      setReports(Array.isArray(reportsData) ? reportsData : []);
       setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
     } catch (err) {
-      setError(err.message || 'שגיאה בטעינת נתוני הדשבורד');
+      setError(err.message || 'שגיאה בטעינת נתוני בסיס');
     } finally {
       setLoading(false);
     }
   }
 
+  async function loadInOutChart() {
+    try {
+      const data = await apiGet(
+        `/admin/reports${buildQuery({
+          employeeCode: inOutFilters.employeeCode,
+          fromDate: inOutFilters.fromDate,
+          toDate: inOutFilters.toDate
+        })}`
+      );
+      setInOutRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function loadActiveDeptChart() {
+    try {
+      const data = await apiGet(
+        `/admin/reports${buildQuery({
+          fromDate: activeFilters.date,
+          toDate: activeFilters.date
+        })}`
+      );
+      setActiveRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function loadRankingChart() {
+    try {
+      const data = await apiGet(
+        `/admin/reports${buildQuery({
+          employeeCode: rankingFilters.employeeCode,
+          fromDate: rankingFilters.fromDate,
+          toDate: rankingFilters.toDate
+        })}`
+      );
+      setRankingRowsSource(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function loadVacationChart() {
+    try {
+      const data = await apiGet(
+        `/admin/reports${buildQuery({
+          employeeCode: vacationFilters.employeeCode,
+          fromDate: vacationFilters.fromDate,
+          toDate: vacationFilters.toDate
+        })}`
+      );
+      setVacationRowsSource(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   useEffect(() => {
-    loadData();
-  }, [date]);
+    loadBaseData();
+  }, []);
 
-  const filteredUsers = useMemo(() => {
-    if (!departmentId) return users;
-    return users.filter((u) => String(u.department_id || '') === String(departmentId));
-  }, [users, departmentId]);
+  useEffect(() => {
+    loadInOutChart();
+  }, [inOutFilters.fromDate, inOutFilters.toDate, inOutFilters.employeeCode]);
 
-  const filteredReports = useMemo(() => {
-    if (!departmentId) return reports;
-    const allowedIds = new Set(filteredUsers.map((u) => u.id));
-    return reports.filter((r) => allowedIds.has(r.user_id));
-  }, [reports, filteredUsers, departmentId]);
+  useEffect(() => {
+    loadActiveDeptChart();
+  }, [activeFilters.date]);
 
-  const inOut = useMemo(() => {
-    const inCount = filteredReports.filter((r) => r.record_type === 'in').length;
-    const outCount = filteredReports.filter((r) => r.record_type === 'out').length;
-    return { inCount, outCount };
-  }, [filteredReports]);
+  useEffect(() => {
+    loadRankingChart();
+  }, [rankingFilters.fromDate, rankingFilters.toDate, rankingFilters.employeeCode]);
 
-  const deptGauge = useMemo(() => {
-    const total = filteredUsers.filter((u) => Number(u.is_active) === 1).length;
-    const activeIds = new Set(filteredReports.filter((r) => r.record_type === 'in').map((r) => r.user_id));
-    return { total, activeCount: activeIds.size };
-  }, [filteredUsers, filteredReports]);
+  useEffect(() => {
+    loadVacationChart();
+  }, [vacationFilters.fromDate, vacationFilters.toDate, vacationFilters.employeeCode]);
+
+  const inOutData = useMemo(() => {
+    return {
+      inCount: inOutRows.filter((r) => r.record_type === 'in').length,
+      outCount: inOutRows.filter((r) => r.record_type === 'out').length
+    };
+  }, [inOutRows]);
+
+  const activeGaugeData = useMemo(() => {
+    const departmentUsers = activeFilters.departmentId
+      ? users.filter(
+        (u) =>
+          String(u.department_id || '') === String(activeFilters.departmentId) &&
+          Number(u.is_active) === 1
+      )
+      : users.filter((u) => Number(u.is_active) === 1);
+
+    const allowedIds = new Set(departmentUsers.map((u) => u.id));
+    const reportedIds = new Set(
+      activeRows
+        .filter((r) => r.record_type === 'in')
+        .filter((r) => !activeFilters.departmentId || allowedIds.has(r.user_id))
+        .map((r) => r.user_id)
+    );
+
+    const dep = departments.find((d) => String(d.id) === String(activeFilters.departmentId));
+    const label = activeFilters.departmentId ? dep?.name || 'מחלקה' : 'כלל העובדים';
+
+    return {
+      totalCount: departmentUsers.length,
+      activeCount: reportedIds.size,
+      label
+    };
+  }, [users, activeRows, departments, activeFilters.departmentId]);
 
   const rankingRows = useMemo(() => {
-    const latest = buildLatestPerUser(filteredReports);
-    const rows = latest.map((r) => ({
+    const latest = buildLatestPerUser(rankingRowsSource);
+
+    let rows = latest.map((r) => ({
       label: r.full_name || r.employee_code || `#${r.user_id}`,
       type: r.work_day_type || 'לא ידוע',
       count: 1
     }));
 
+    if (rankingFilters.category !== 'הכל') {
+      rows = rows.filter((r) => r.type === rankingFilters.category);
+    }
+
     rows.sort((a, b) => {
-      const dir = sortDirection === 'asc' ? 1 : -1;
+      const dir = rankingFilters.sortDirection === 'asc' ? 1 : -1;
       const typeCmp = a.type.localeCompare(b.type, 'he');
       if (typeCmp !== 0) return typeCmp * dir;
       return a.label.localeCompare(b.label, 'he') * dir;
     });
 
     return rows;
-  }, [filteredReports, sortDirection]);
+  }, [rankingRowsSource, rankingFilters.category, rankingFilters.sortDirection]);
 
-  const leaveRows = useMemo(() => {
+  const vacationRows = useMemo(() => {
+    let source = vacationRowsSource.filter((r) => VACATION_TYPES.includes(r.work_day_type));
+
+    if (vacationFilters.category !== 'הכל') {
+      source = source.filter((r) => r.work_day_type === vacationFilters.category);
+    }
+
     const counts = {};
-    filteredReports.forEach((r) => {
-      const type = r.work_day_type;
-      if (!LEAVE_TYPES.includes(type)) return;
-      counts[type] = (counts[type] || 0) + 1;
+    source.forEach((r) => {
+      counts[r.work_day_type] = (counts[r.work_day_type] || 0) + 1;
     });
 
     return Object.entries(counts)
       .map(([type, count]) => ({ type, count }))
       .sort((a, b) => b.count - a.count);
-  }, [filteredReports]);
-
-  const selectedDepartmentName = useMemo(() => {
-    if (!departmentId) return 'כלל המחלקות';
-    const dep = departments.find((d) => String(d.id) === String(departmentId));
-    return dep?.name || 'מחלקה';
-  }, [departmentId, departments]);
+  }, [vacationRowsSource, vacationFilters.category]);
 
   return (
     <div className="card-page" style={{ display: 'grid', gap: 18 }}>
       <div className="section-header">
         <h2>דשבורד מנהל</h2>
-        <button className="secondary-btn small" onClick={loadData} type="button">
+        <button
+          className="secondary-btn small"
+          type="button"
+          onClick={() => {
+            loadBaseData();
+            loadInOutChart();
+            loadActiveDeptChart();
+            loadRankingChart();
+            loadVacationChart();
+          }}
+        >
           רענן
         </button>
       </div>
 
       <div style={cardStyle()}>
         <div style={{ display: 'grid', gap: 14 }}>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>הגדרות גרפים</div>
-
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <label>
-              <span>תאריך</span>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </label>
-
-            <label>
-              <span>מחלקה</span>
-              <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-                <option value="">כל המחלקות</option>
-                {departments.map((dep) => (
-                  <option key={dep.id} value={dep.id}>
-                    {dep.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <span>מיון גרף 3</span>
-              <select value={sortDirection} onChange={(e) => setSortDirection(e.target.value)}>
-                <option value="asc">עולה</option>
-                <option value="desc">יורד</option>
-              </select>
-            </label>
-          </div>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>הצגת גרפים</div>
 
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             {[
               [CHART_KEYS.inOut, 'גרף 1 · כניסות מול יציאות'],
-              [CHART_KEYS.activeDept, 'גרף 2 · פעילים מתוך מחלקה'],
+              [CHART_KEYS.activeDept, 'גרף 2 · עובדים פעילים מתוך מחלקה'],
               [CHART_KEYS.dayTypeRanking, 'גרף 3 · עובדים לפי סוג יום'],
               [CHART_KEYS.vacations, 'גרף 4 · ימי חופש']
             ].map(([key, label]) => (
@@ -392,10 +524,6 @@ export default function AdminDashboardPage() {
                 <span>{label}</span>
               </label>
             ))}
-          </div>
-
-          <div style={{ color: '#5c7797', fontWeight: 700 }}>
-            תאריך נבחר: <strong>{date}</strong> · מחלקה: <strong>{selectedDepartmentName}</strong>
           </div>
         </div>
       </div>
@@ -422,39 +550,214 @@ export default function AdminDashboardPage() {
       </div>
 
       {loading ? (
-        <div style={cardStyle()}>טוען נתוני גרפים...</div>
+        <div style={cardStyle()}>טוען נתוני דשבורד...</div>
       ) : (
         <div style={{ display: 'grid', gap: 18 }}>
           {visible[CHART_KEYS.inOut] && (
-            <ChartShell title="1. כמות יציאות מול כניסות ביום נבחר">
-              <InOutBarChart inCount={inOut.inCount} outCount={inOut.outCount} />
-            </ChartShell>
+            <SectionCard title="1. כמות יציאות מול כניסות">
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+                <label>
+                  <span>מתאריך</span>
+                  <input
+                    type="date"
+                    value={inOutFilters.fromDate}
+                    onChange={(e) => setInOutFilters({ ...inOutFilters, fromDate: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>עד תאריך</span>
+                  <input
+                    type="date"
+                    value={inOutFilters.toDate}
+                    onChange={(e) => setInOutFilters({ ...inOutFilters, toDate: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>עובד</span>
+                  <select
+                    value={inOutFilters.employeeCode}
+                    onChange={(e) => setInOutFilters({ ...inOutFilters, employeeCode: e.target.value })}
+                  >
+                    <option value="">כל העובדים</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.employee_code}>
+                        {getUserName(u)} ({u.employee_code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <InOutBarChart inCount={inOutData.inCount} outCount={inOutData.outCount} />
+            </SectionCard>
           )}
 
           {visible[CHART_KEYS.activeDept] && (
-            <ChartShell title="2. עובדים פעילים מתוך כמות העובדים הרשומים במחלקה">
-              <SemiGauge activeCount={deptGauge.activeCount} totalCount={deptGauge.total} label={selectedDepartmentName} />
-            </ChartShell>
+            <SectionCard title="2. עובדים פעילים מתוך כמות הרשומים">
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+                <label>
+                  <span>תאריך</span>
+                  <input
+                    type="date"
+                    value={activeFilters.date}
+                    onChange={(e) => setActiveFilters({ ...activeFilters, date: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>מחלקה</span>
+                  <select
+                    value={activeFilters.departmentId}
+                    onChange={(e) => setActiveFilters({ ...activeFilters, departmentId: e.target.value })}
+                  >
+                    <option value="">כל המחלקות</option>
+                    {departments.map((dep) => (
+                      <option key={dep.id} value={dep.id}>
+                        {dep.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <SemiGauge
+                activeCount={activeGaugeData.activeCount}
+                totalCount={activeGaugeData.totalCount}
+                label={activeGaugeData.label}
+              />
+            </SectionCard>
           )}
 
           {visible[CHART_KEYS.dayTypeRanking] && (
-            <ChartShell title="3. עובדים לפי סטטוס סוג יום">
+            <SectionCard title="3. עובדים לפי סטטוס סוג יום">
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+                <label>
+                  <span>מתאריך</span>
+                  <input
+                    type="date"
+                    value={rankingFilters.fromDate}
+                    onChange={(e) => setRankingFilters({ ...rankingFilters, fromDate: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>עד תאריך</span>
+                  <input
+                    type="date"
+                    value={rankingFilters.toDate}
+                    onChange={(e) => setRankingFilters({ ...rankingFilters, toDate: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>עובד</span>
+                  <select
+                    value={rankingFilters.employeeCode}
+                    onChange={(e) => setRankingFilters({ ...rankingFilters, employeeCode: e.target.value })}
+                  >
+                    <option value="">כל העובדים</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.employee_code}>
+                        {getUserName(u)} ({u.employee_code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>קטגוריה</span>
+                  <select
+                    value={rankingFilters.category}
+                    onChange={(e) => setRankingFilters({ ...rankingFilters, category: e.target.value })}
+                  >
+                    {DAY_TYPE_OPTIONS.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>סדר</span>
+                  <select
+                    value={rankingFilters.sortDirection}
+                    onChange={(e) => setRankingFilters({ ...rankingFilters, sortDirection: e.target.value })}
+                  >
+                    <option value="asc">עולה</option>
+                    <option value="desc">יורד</option>
+                  </select>
+                </label>
+              </div>
+
               {rankingRows.length ? (
                 <HorizontalRanking rows={rankingRows} />
               ) : (
-                <EmptyState text="אין נתונים להצגה בגרף זה בתאריך שנבחר." />
+                <EmptyState text="אין נתונים להצגה בגרף זה." />
               )}
-            </ChartShell>
+            </SectionCard>
           )}
 
           {visible[CHART_KEYS.vacations] && (
-            <ChartShell title="4. ימי חופש שנרשמו במערכת">
-              {leaveRows.length ? (
-                <LeaveBars rows={leaveRows} />
+            <SectionCard title="4. ימי חופש שנרשמו במערכת">
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+                <label>
+                  <span>מתאריך</span>
+                  <input
+                    type="date"
+                    value={vacationFilters.fromDate}
+                    onChange={(e) => setVacationFilters({ ...vacationFilters, fromDate: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>עד תאריך</span>
+                  <input
+                    type="date"
+                    value={vacationFilters.toDate}
+                    onChange={(e) => setVacationFilters({ ...vacationFilters, toDate: e.target.value })}
+                  />
+                </label>
+
+                <label>
+                  <span>עובד</span>
+                  <select
+                    value={vacationFilters.employeeCode}
+                    onChange={(e) => setVacationFilters({ ...vacationFilters, employeeCode: e.target.value })}
+                  >
+                    <option value="">כל העובדים</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.employee_code}>
+                        {getUserName(u)} ({u.employee_code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  <span>קטגוריה</span>
+                  <select
+                    value={vacationFilters.category}
+                    onChange={(e) => setVacationFilters({ ...vacationFilters, category: e.target.value })}
+                  >
+                    <option value="הכל">הכל</option>
+                    {VACATION_TYPES.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {vacationRows.length ? (
+                <LeaveBars rows={vacationRows} />
               ) : (
-                <EmptyState text="לא נמצאו רישומי חופשה/מחלה/מילואים לתאריך שנבחר." />
+                <EmptyState text="לא נמצאו רישומי חופשה/מחלה/מילואים לפי הסינון." />
               )}
-            </ChartShell>
+            </SectionCard>
           )}
         </div>
       )}
