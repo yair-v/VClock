@@ -12,7 +12,9 @@ const workDayOptions = [
   'מחלת משפחה',
   'מילואים',
   'עבודה מהבית',
-  'ארוחה',
+  'ארוחת בוקר',
+  'ארוחת צהריים',
+  'ארוחת ערב',
   'אחר'
 ];
 
@@ -350,6 +352,9 @@ export default function AdminReportsPage() {
               <th>סוג יום</th>
               <th>הערה</th>
               <th>הערת מנהל</th>
+              <th>ארוחה</th>
+              <th>עיר</th>
+              <th>חריגה</th>
               <th>סטטוס</th>
               <th>תאריך ושעה</th>
               <th>פעולות</th>
@@ -426,6 +431,10 @@ export default function AdminReportsPage() {
                     )}
                   </td>
 
+                  <td>{row.meal_type || '-'}</td>
+                  <td>{row.meal_city || '-'}</td>
+                  <td>{row.missing_checkout ? (row.missing_checkout_note || 'לא נסגר עד 23:59') : '-'}</td>
+
                   <td>
                     {isEditing ? (
                       <select
@@ -497,7 +506,7 @@ export default function AdminReportsPage() {
 
             {rows.length === 0 && (
               <tr>
-                <td colSpan="9" className="empty-cell">אין נתונים</td>
+                <td colSpan="12" className="empty-cell">אין נתונים</td>
               </tr>
             )}
           </tbody>

@@ -20,7 +20,7 @@ const APP_TIMEZONE = 'Asia/Jerusalem';
 const WEEK_DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const REGULAR_DAY_TYPES = ['יום רגיל', 'עבודה מהבית'];
 const SPECIAL_AUTO_CLOSE_TYPES = ['מילואים', 'מחלה', 'מחלת משפחה'];
-const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחה', 'אחר'];
+const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחת בוקר', 'ארוחת צהריים', 'ארוחת ערב', 'אחר'];
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -198,6 +198,81 @@ async function ensureMonthlyLock() {
      ON CONFLICT (month_key) DO NOTHING`,
     [prevMonthKey]
   );
+}
+
+
+
+async function getCityFromCoords(latitude, longitude) {
+  if (!latitude || !longitude) return '';
+
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&accept-language=he,en`,
+      {
+        headers: {
+          'User-Agent': 'VClock/1.0 (attendance reverse geocoding)'
+        }
+      }
+    );
+
+    if (!response.ok) return '';
+
+    const data = await response.json();
+    return (
+      data?.address?.city ||
+      data?.address?.town ||
+      data?.address?.village ||
+      data?.address?.municipality ||
+      data?.address?.suburb ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+}
+
+async function ensureMissingCheckoutAlerts() {
+  const today = getNowInIsrael().dateString;
+
+  const result = await query(
+    `SELECT DISTINCT ON (r.user_id, DATE(r.record_time))
+       r.id,
+       r.user_id,
+       r.record_time,
+       r.record_type,
+       r.work_day_type,
+       r.missing_checkout,
+       u.full_name
+     FROM attendance_records r
+     JOIN users u ON u.id = r.user_id
+     WHERE DATE(r.record_time) < $1::date
+     ORDER BY r.user_id, DATE(r.record_time), r.record_time DESC, r.id DESC`,
+    [today]
+  );
+
+  for (const row of result.rows) {
+    if (row.record_type !== 'in') continue;
+    if (row.missing_checkout) continue;
+
+    await query(
+      `UPDATE attendance_records
+       SET missing_checkout = TRUE,
+           missing_checkout_note = 'לא נסגר עד 23:59',
+           missing_checkout_logged_at = COALESCE(missing_checkout_logged_at, NOW())
+       WHERE id = $1
+         AND missing_checkout = FALSE`,
+      [row.id]
+    );
+
+    await logAction({
+      userId: row.user_id,
+      attendanceRecordId: row.id,
+      actionType: 'missing_checkout',
+      actionTitle: 'יום עבודה לא נסגר עד 23:59',
+      details: `נמצאה כניסה פתוחה ללא יציאה עבור ${row.full_name || ''} בתאריך ${getDateStringFromValue(row.record_time)}`,
+      createdByUserId: null
+    });
+  }
 }
 
 async function isMonthLocked(monthKey) {
@@ -787,6 +862,7 @@ app.get('/api/my-status', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const user = await resolveUserSchedule(req.user.id);
     if (!user) {
@@ -834,6 +910,7 @@ app.get('/api/my-records', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const { start, end } = getWorkdayWindow();
 
@@ -857,6 +934,7 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const result = await query(
       `SELECT
@@ -910,6 +988,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const {
       recordType,
@@ -917,7 +996,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       note,
       latitude,
       longitude,
-      location_status
+      location_status,
+      mealType
     } = req.body;
 
     if (!['in', 'out'].includes(recordType)) {
@@ -980,6 +1060,10 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       });
     }
 
+    const mealCity = mealType && latitude && longitude && location_status === 'ok'
+      ? await getCityFromCoords(latitude, longitude)
+      : '';
+
     const inserted = await query(
       `INSERT INTO attendance_records
        (
@@ -1000,9 +1084,11 @@ app.post('/api/attendance', authRequired, async (req, res) => {
          manager_note,
          auto_closed,
          source_action,
-         action_label
+         action_label,
+         meal_type,
+         meal_city
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),$10,$11,$12,$13,$14,$15,$16)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),$10,$11,$12,$13,$14,$15,$16,$17,$18)
        RETURNING *`,
       [
         req.user.id,
@@ -1020,7 +1106,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         '',
         0,
         'manual',
-        buildActionTitle(recordType, workDayType)
+        buildActionTitle(recordType, workDayType),
+        mealType || '',
+        mealCity || ''
       ]
     );
 
@@ -1041,6 +1129,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       details: [
         `סוג יום: ${workDayType}`,
         note ? `הערה: ${note}` : '',
+        mealType ? `ארוחה: ${mealType}${mealCity ? ` בעיר ${mealCity}` : ''}` : '',
         validation.exceptionReason ? `חריגה: ${validation.exceptionReason}` : '',
         validation.requiresAdminApproval ? 'ממתין לאישור מנהל' : 'אושר אוטומטית'
       ].filter(Boolean).join(' | '),
@@ -1064,6 +1153,7 @@ app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) =>
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const totalUsers = await query(
       `SELECT COUNT(*)::int AS count FROM users WHERE role = 'employee'`
@@ -1117,6 +1207,7 @@ app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const { employeeCode = '', fromDate = '', toDate = '', approvalStatus = '' } = req.query;
 
@@ -1217,11 +1308,13 @@ app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, r
          action_label,
          is_edited,
          edited_at,
-         edited_by
+         edited_by,
+         meal_type,
+         meal_city
        )
        VALUES (
          $1,$2,$3,$4,'','','ok','','',$5::timestamp,NOW(),
-         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7
+         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7,'',''
        )
        RETURNING *`,
       [
@@ -1500,6 +1593,7 @@ app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, r
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const { month } = req.query;
 
@@ -2064,6 +2158,7 @@ app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const result = await query(
       `SELECT
@@ -2133,6 +2228,7 @@ app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, r
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
+    await ensureMissingCheckoutAlerts();
 
     const selectedDate = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
     const groupId = req.query.groupId ? parseInt(req.query.groupId, 10) : null;

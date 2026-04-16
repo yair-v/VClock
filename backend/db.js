@@ -155,7 +155,7 @@ async function initDb() {
       prevent_double_checkin INTEGER NOT NULL DEFAULT 1,
       prevent_checkout_without_checkin INTEGER NOT NULL DEFAULT 1,
       allow_multiple_sessions_per_day INTEGER NOT NULL DEFAULT 1,
-      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
+      work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחת בוקר","ארוחת צהריים","ארוחת ערב","אחר"]'
     )
   `);
 
@@ -343,9 +343,35 @@ async function initDb() {
     ADD COLUMN IF NOT EXISTS calendar_holiday_type TEXT NOT NULL DEFAULT ''
   `);
 
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS missing_checkout BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS missing_checkout_note TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS missing_checkout_logged_at TIMESTAMP NULL
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS meal_type TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS meal_city TEXT NOT NULL DEFAULT ''
+  `);
+
   await query(`
     ALTER TABLE settings
-    ADD COLUMN IF NOT EXISTS work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
+    ADD COLUMN IF NOT EXISTS work_day_types TEXT DEFAULT '["יום רגיל","שישי","שישי בתשלום","שבת","חג","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחת בוקר","ארוחת צהריים","ארוחת ערב","אחר"]'
   `);
 
   await query(`
@@ -378,7 +404,7 @@ async function initDb() {
       1,
       1,
       1,
-      '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחה","אחר"]'
+      '["יום רגיל","שישי","שישי בתשלום","שבת","חג","ערב חג","חול המועד","חופשה","מחלה","מחלת משפחה","מילואים","עבודה מהבית","ארוחת בוקר","ארוחת צהריים","ארוחת ערב","אחר"]'
     )
     ON CONFLICT (id) DO UPDATE SET
       work_day_types = EXCLUDED.work_day_types

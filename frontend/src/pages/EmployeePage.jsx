@@ -12,7 +12,9 @@ const defaultWorkDayOptions = [
   'מחלת משפחה',
   'מילואים',
   'עבודה מהבית',
-  'ארוחה',
+  'ארוחת בוקר',
+  'ארוחת צהריים',
+  'ארוחת ערב',
   'אחר'
 ];
 
@@ -32,6 +34,7 @@ export default function EmployeePage() {
   const [error, setError] = useState('');
   const [workDayType, setWorkDayType] = useState('יום רגיל');
   const [note, setNote] = useState('');
+  const [mealType, setMealType] = useState('');
   const [now, setNow] = useState(new Date());
   const [locationLoading, setLocationLoading] = useState(false);
 
@@ -108,12 +111,14 @@ export default function EmployeePage() {
         recordType,
         workDayType,
         note,
+        mealType,
         latitude: location.latitude,
         longitude: location.longitude,
         location_status: location.location_status
       });
       setMessage(data.message || 'הדיווח נשמר בהצלחה');
       setNote('');
+      setMealType('');
       await loadStatus();
     } catch (err) {
       setError(err.message);
@@ -152,6 +157,25 @@ export default function EmployeePage() {
             <span>הערה</span>
             <textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} placeholder="הערה חופשית" />
           </label>
+
+          <div className="helper-box" style={{ marginTop: 4 }}>
+            <strong>סימון ארוחה</strong>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10 }}>
+              {['ארוחת בוקר', 'ארוחת צהריים', 'ארוחת ערב'].map((item) => (
+                <label key={item} className="checkbox-row" style={{ margin: 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={mealType === item}
+                    onChange={(e) => setMealType(e.target.checked ? item : '')}
+                  />
+                  <span>{item}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: 8, color: '#5c7797' }}>
+              אם מסומנת ארוחה, המערכת תשמור גם את המיקום והעיר הקרובה.
+            </div>
+          </div>
 
           {message && <div className="alert success">{message}</div>}
           {error && <div className="alert error">{error}</div>}
