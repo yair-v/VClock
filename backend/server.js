@@ -1150,7 +1150,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
   }
 });
 
-app.get('/api/admin/dashboardapp.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/dashboard', adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
