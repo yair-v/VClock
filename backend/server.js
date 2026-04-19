@@ -956,7 +956,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
-    const {
+    let {
       recordType,
       workDayType,
       note,
@@ -965,6 +965,10 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       location_status,
       meal_type
     } = req.body;
+
+    latitude = latitude || '';
+    longitude = longitude || '';
+    location_status = location_status || 'denied';
 
     if (!['in', 'out'].includes(recordType)) {
       return res.status(400).json({ error: 'סוג דיווח לא תקין' });
@@ -1006,6 +1010,23 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       ? await getNearestCityFromCoords(latitude, longitude)
       : '';
 
+    const todayDate = getNowInIsrael().dateString;
+    const lastRecordDate = lastRecord?.record_time ? getDateStringFromValue(lastRecord.record_time) : '';
+    const isClosedFromPreviousDay =
+      Number(user.day_closed || 0) === 1 &&
+      lastRecordDate &&
+      lastRecordDate !== todayDate;
+
+    if (isClosedFromPreviousDay) {
+      await query(
+        `UPDATE users
+         SET day_closed = 0
+         WHERE id = $1`,
+        [req.user.id]
+      );
+      user.day_closed = 0;
+    }
+
     if (recordType === 'in' && user.day_closed) {
       return res.status(400).json({ error: 'היום נסגר. יש לפנות למנהל לאישור פתיחה מחדש' });
     }
@@ -1014,7 +1035,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       recordType === 'in' &&
       validation.settings.prevent_double_checkin &&
       lastRecord &&
-      lastRecord.record_type === 'in'
+      lastRecord.record_type === 'in' &&
+      lastRecordDate === todayDate
     ) {
       return res.status(400).json({
         error: 'לא ניתן לבצע כניסה שנייה באותו היום ויש לפנות למנהל המחלקה על מנת לשחרר את הרשומה'
@@ -1051,18 +1073,27 @@ app.post('/api/attendance', authRequired, async (req, res) => {
          manager_note,
          auto_closed,
          source_action,
-         action_label
+         action_label,
+         meal_type,
+         meal_city,
+         meal_latitude,
+         meal_longitude
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW(),NOW(),$10,$11,$12,$13,$14,$15,$16)
+       VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,
+         NOW(),NOW(),
+         $10,$11,$12,$13,$14,$15,$16,
+         $17,$18,$19,$20
+       )
        RETURNING *`,
       [
         req.user.id,
         recordType,
         workDayType,
         note || '',
-        latitude || '',
-        longitude || '',
-        location_status || 'ok',
+        latitude,
+        longitude,
+        location_status,
         req.ip || '',
         req.headers['user-agent'] || '',
         validation.approvalStatus,
@@ -1074,8 +1105,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         buildActionTitle(recordType, workDayType),
         normalizedMealType,
         mealCity,
-        normalizedMealType ? (latitude || '') : '',
-        normalizedMealType ? (longitude || '') : ''
+        normalizedMealType ? latitude : '',
+        normalizedMealType ? longitude : ''
       ]
     );
 
@@ -1114,11 +1145,12 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       meal_city: mealCity
     });
   } catch (err) {
+    console.error('ATTENDANCE ERROR:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/dashboardapp.get('/api/admin/dashboard', authRequired, adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();

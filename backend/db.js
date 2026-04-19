@@ -66,6 +66,11 @@ async function ensurePeriodLocksSchema() {
   `);
 
   await query(`
+    ALTER TABLE attendance_records
+    ADD COLUMN IF NOT EXISTS missing_checkout BOOLEAN DEFAULT FALSE
+  `);
+
+  await query(`
     ALTER TABLE settings
     ADD COLUMN IF NOT EXISTS breakfast_cost NUMERIC(10,2) NOT NULL DEFAULT 0
   `);
