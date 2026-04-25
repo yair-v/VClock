@@ -180,6 +180,13 @@ function normalizeMealType(value) {
   return ALLOWED_MEAL_TYPES.includes(normalized) ? normalized : '';
 }
 
+function normalizeNfcUid(value) {
+  return String(value || '')
+    .replace(/[^0-9a-fA-F]/g, '')
+    .toUpperCase()
+    .trim();
+}
+
 function getMealLabel(mealType) {
   if (mealType === 'breakfast') return 'ארוחת בוקר';
   if (mealType === 'lunch') return 'ארוחת צהריים';
@@ -1150,6 +1157,151 @@ app.post('/api/attendance', authRequired, async (req, res) => {
   }
 });
 
+
+app.post('/api/nfc/attendance', async (req, res) => {
+  try {
+    const uid = normalizeNfcUid(req.body.uid || req.body.card_uid || req.body.cardUid);
+
+    if (!uid) {
+      return res.status(400).json({ error: 'חסר UID של כרטיס' });
+    }
+
+    const userRes = await query(
+      `SELECT *
+       FROM users
+       WHERE nfc_uid = $1
+       LIMIT 1`,
+      [uid]
+    );
+
+    const user = userRes.rows[0];
+
+    if (!user || !Number(user.is_active || 0)) {
+      return res.status(404).json({ error: 'כרטיס לא משויך לעובד פעיל', uid });
+    }
+
+    const scheduledUser = await resolveUserSchedule(user.id);
+    const todayDate = getNowInIsrael().dateString;
+
+    const lastRes = await query(
+      `SELECT *
+       FROM attendance_records
+       WHERE user_id = $1
+       ORDER BY record_time DESC, id DESC
+       LIMIT 1`,
+      [user.id]
+    );
+
+    const lastRecord = lastRes.rows[0] || null;
+    const lastRecordDate = lastRecord?.record_time ? getDateStringFromValue(lastRecord.record_time) : '';
+    const nextRecordType = lastRecord && lastRecord.record_type === 'in' && lastRecordDate === todayDate ? 'out' : 'in';
+    const workDayType = nextRecordType === 'out' && lastRecord?.work_day_type ? lastRecord.work_day_type : 'יום רגיל';
+
+    if (nextRecordType === 'in' && Number(user.day_closed || 0) === 1) {
+      await query(
+        `UPDATE users
+         SET day_closed = 0
+         WHERE id = $1`,
+        [user.id]
+      );
+    }
+
+    const validation = await validateAttendanceRequest({
+      user: scheduledUser || user,
+      recordType: nextRecordType,
+      workDayType
+    });
+
+    const inserted = await query(
+      `INSERT INTO attendance_records
+       (
+         user_id,
+         record_type,
+         work_day_type,
+         note,
+         latitude,
+         longitude,
+         location_status,
+         ip_address,
+         device_info,
+         record_time,
+         created_at,
+         approval_status,
+         requires_admin_approval,
+         exception_reason,
+         manager_note,
+         auto_closed,
+         source_action,
+         action_label,
+         meal_type,
+         meal_city,
+         meal_latitude,
+         meal_longitude
+       )
+       VALUES (
+         $1,$2,$3,$4,'','','ok',$5,$6,
+         NOW(),NOW(),
+         $7,$8,$9,'',0,'nfc_card',$10,'','','',''
+       )
+       RETURNING *`,
+      [
+        user.id,
+        nextRecordType,
+        workDayType,
+        'דיווח באמצעות כרטיס',
+        req.ip || '',
+        req.headers['user-agent'] || 'NFC Reader',
+        validation.approvalStatus,
+        validation.requiresAdminApproval ? 1 : 0,
+        validation.exceptionReason,
+        buildActionTitle(nextRecordType, workDayType)
+      ]
+    );
+
+    await query(
+      `UPDATE users
+       SET day_closed = $1
+       WHERE id = $2`,
+      [nextRecordType === 'out' ? 1 : 0, user.id]
+    );
+
+    await logAction({
+      userId: user.id,
+      attendanceRecordId: inserted.rows[0].id,
+      actionType: 'attendance_nfc',
+      actionTitle: buildActionTitle(nextRecordType, workDayType),
+      details: [
+        `דיווח כרטיס UID: ${uid}`,
+        `סוג יום: ${workDayType}`,
+        validation.exceptionReason ? `חריגה: ${validation.exceptionReason}` : '',
+        validation.requiresAdminApproval ? 'ממתין לאישור מנהל' : 'אושר אוטומטית'
+      ].filter(Boolean).join(' | '),
+      createdByUserId: null
+    });
+
+    res.json({
+      success: true,
+      uid,
+      user_id: user.id,
+      employee_code: user.employee_code,
+      full_name: user.full_name,
+      record_type: nextRecordType,
+      status: nextRecordType,
+      action_label: buildActionTitle(nextRecordType, workDayType),
+      record_time: inserted.rows[0].record_time,
+      approval_status: inserted.rows[0].approval_status,
+      requires_admin_approval: inserted.rows[0].requires_admin_approval,
+      exception_reason: inserted.rows[0].exception_reason,
+      message: nextRecordType === 'in' ? 'כניסה נרשמה בהצלחה' : 'יציאה נרשמה בהצלחה'
+    });
+  } catch (err) {
+    if (String(err.message || '').includes('users_nfc_uid_unique')) {
+      return res.status(400).json({ error: 'כרטיס זה כבר משויך לעובד אחר' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/admin/dashboard', adminRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
@@ -1668,6 +1820,7 @@ app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          u.role,
          u.is_active,
          u.day_closed,
+         u.nfc_uid,
          u.created_at,
          u.work_group_id,
          u.allowed_work_days,
@@ -1698,6 +1851,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       password,
       role,
       is_active,
+      nfc_uid,
       work_group_id,
       allowed_work_days,
       friday_rotation_anchor_date,
@@ -1717,6 +1871,17 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       return res.status(400).json({ error: 'קוד עובד כבר קיים' });
     }
 
+    const nextNfcUid = normalizeNfcUid(nfc_uid);
+    if (nextNfcUid) {
+      const nfcExists = await query(
+        `SELECT id FROM users WHERE nfc_uid = $1`,
+        [nextNfcUid]
+      );
+      if (nfcExists.rows.length > 0) {
+        return res.status(400).json({ error: 'כרטיס זה כבר משויך לעובד אחר' });
+      }
+    }
+
     await query(
       `INSERT INTO users (
          employee_code,
@@ -1725,13 +1890,14 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          role,
          is_active,
          day_closed,
+         nfc_uid,
          created_at,
          work_group_id,
          allowed_work_days,
          friday_rotation_anchor_date,
          friday_rotation_start_allowed
        )
-       VALUES ($1,$2,$3,$4,$5,$6,NOW(),$7,$8,$9,$10)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8,$9,$10,$11)`,
       [
         String(employee_code),
         String(full_name),
@@ -1739,6 +1905,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
         role === 'admin' ? 'admin' : 'employee',
         is_active ? 1 : 0,
         0,
+        nextNfcUid,
         work_group_id ? parseInt(work_group_id, 10) : null,
         JSON.stringify(normalizeWeekDays(allowed_work_days)),
         friday_rotation_anchor_date || getNowInIsrael().dateString,
@@ -1762,6 +1929,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       role,
       is_active,
       day_closed,
+      nfc_uid,
       work_group_id,
       allowed_work_days,
       friday_rotation_anchor_date,
@@ -1783,6 +1951,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
     const nextRole = typeof role !== 'undefined' ? (role === 'admin' ? 'admin' : 'employee') : user.role;
     const nextActive = typeof is_active !== 'undefined' ? (is_active ? 1 : 0) : user.is_active;
     const nextClosed = typeof day_closed !== 'undefined' ? (day_closed ? 1 : 0) : user.day_closed;
+    const nextNfcUid = typeof nfc_uid !== 'undefined' ? normalizeNfcUid(nfc_uid) : (user.nfc_uid || '');
     const nextPasswordHash = password && String(password).trim() !== ''
       ? bcrypt.hashSync(String(password), 10)
       : user.password_hash;
@@ -1812,6 +1981,16 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       return res.status(400).json({ error: 'קוד עובד כבר קיים' });
     }
 
+    if (nextNfcUid) {
+      const nfcExists = await query(
+        `SELECT id FROM users WHERE nfc_uid = $1 AND id <> $2`,
+        [nextNfcUid, id]
+      );
+      if (nfcExists.rows.length > 0) {
+        return res.status(400).json({ error: 'כרטיס זה כבר משויך לעובד אחר' });
+      }
+    }
+
     await query(
       `UPDATE users
        SET employee_code = $1,
@@ -1820,11 +1999,12 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
            role = $4,
            is_active = $5,
            day_closed = $6,
-           work_group_id = $7,
-           allowed_work_days = $8,
-           friday_rotation_anchor_date = $9,
-           friday_rotation_start_allowed = $10
-       WHERE id = $11`,
+           nfc_uid = $7,
+           work_group_id = $8,
+           allowed_work_days = $9,
+           friday_rotation_anchor_date = $10,
+           friday_rotation_start_allowed = $11
+       WHERE id = $12`,
       [
         nextEmployeeCode,
         nextName,
@@ -1832,6 +2012,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
         nextRole,
         nextActive,
         nextClosed,
+        nextNfcUid,
         nextWorkGroupId,
         nextAllowedWorkDays,
         nextFridayAnchorDate,

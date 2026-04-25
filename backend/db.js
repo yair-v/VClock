@@ -197,6 +197,17 @@ async function initDb() {
 
   await query(`
     ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS nfc_uid TEXT DEFAULT ''
+  `);
+
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_nfc_uid_unique
+    ON users (nfc_uid)
+    WHERE nfc_uid IS NOT NULL AND nfc_uid <> ''
+  `);
+
+  await query(`
+    ALTER TABLE users
     ADD COLUMN IF NOT EXISTS day_closed INTEGER NOT NULL DEFAULT 0
   `);
 

@@ -7,7 +7,8 @@ const defaultForm = {
   password: '',
   role: 'employee',
   isActive: true,
-  department_id: ''
+  department_id: '',
+  nfcUid: ''
 };
 
 export default function AdminUsersPage() {
@@ -60,7 +61,8 @@ export default function AdminUsersPage() {
         password: form.password,
         role: form.role,
         is_active: form.isActive,
-        department_id: form.department_id ? Number(form.department_id) : null
+        department_id: form.department_id ? Number(form.department_id) : null,
+        nfc_uid: String(form.nfcUid || '').replace(/[^0-9a-fA-F]/g, '').toUpperCase()
       };
 
       if (editingId) {
@@ -86,7 +88,8 @@ export default function AdminUsersPage() {
       password: '',
       role: user.role || 'employee',
       isActive: Boolean(user.is_active),
-      department_id: user.department_id || ''
+      department_id: user.department_id || '',
+      nfcUid: user.nfc_uid || ''
     });
     setMessage('');
     setError('');
@@ -164,6 +167,7 @@ export default function AdminUsersPage() {
               <th>שם</th>
               <th>תפקיד</th>
               <th>מחלקה</th>
+              <th>UID כרטיס</th>
               <th>סטטוס</th>
               <th>יום סגור</th>
               <th>פעולות</th>
@@ -177,6 +181,7 @@ export default function AdminUsersPage() {
                 <td>{user.full_name}</td>
                 <td>{user.role}</td>
                 <td>{user.department_name || '-'}</td>
+                <td dir="ltr">{user.nfc_uid || '-'}</td>
                 <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
                 <td>{user.day_closed ? 'כן' : 'לא'}</td>
                 <td>
@@ -229,7 +234,7 @@ export default function AdminUsersPage() {
 
             {users.length === 0 && (
               <tr>
-                <td colSpan="7" className="empty-cell">אין עובדים להצגה</td>
+                <td colSpan="8" className="empty-cell">אין עובדים להצגה</td>
               </tr>
             )}
           </tbody>
@@ -294,6 +299,20 @@ export default function AdminUsersPage() {
                   </option>
                 ))}
             </select>
+          </label>
+
+          <label>
+            <span>UID כרטיס NFC / RFID</span>
+            <input
+              dir="ltr"
+              value={form.nfcUid}
+              onChange={(e) => setForm({
+                ...form,
+                nfcUid: e.target.value.replace(/[^0-9a-fA-F]/g, '').toUpperCase()
+              })}
+              placeholder="לדוגמה: 04AABBCCDD"
+            />
+            <small>אפשר להקליד/להדביק את הקוד שהקורא מציג. השדה נשמר נקי באותיות גדולות.</small>
           </label>
 
           <label className="checkbox-row">
