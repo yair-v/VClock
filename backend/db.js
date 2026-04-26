@@ -384,6 +384,70 @@ async function initDb() {
     ADD COLUMN IF NOT EXISTS department_id INTEGER
   `);
 
+
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS system_rules (
+      id SERIAL PRIMARY KEY,
+      rule_name TEXT NOT NULL,
+      department_id INTEGER NULL REFERENCES departments(id) ON DELETE SET NULL,
+      week_day TEXT NOT NULL DEFAULT 'all',
+      record_type TEXT NOT NULL DEFAULT 'all',
+      work_day_type TEXT NOT NULL DEFAULT 'all',
+      time_from TEXT NOT NULL DEFAULT '',
+      time_to TEXT NOT NULL DEFAULT '',
+      rule_action TEXT NOT NULL DEFAULT 'warning',
+      message TEXT NOT NULL DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS department_id INTEGER NULL REFERENCES departments(id) ON DELETE SET NULL
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS week_day TEXT NOT NULL DEFAULT 'all'
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS record_type TEXT NOT NULL DEFAULT 'all'
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS work_day_type TEXT NOT NULL DEFAULT 'all'
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS time_from TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS time_to TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS rule_action TEXT NOT NULL DEFAULT 'warning'
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS message TEXT NOT NULL DEFAULT ''
+  `);
+
+  await query(`
+    ALTER TABLE system_rules
+    ADD COLUMN IF NOT EXISTS is_active INTEGER NOT NULL DEFAULT 1
+  `);
+
   await query(`
     UPDATE users
     SET friday_rotation_anchor_date = COALESCE(friday_rotation_anchor_date, CURRENT_DATE)

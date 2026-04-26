@@ -607,3 +607,13 @@ textarea {
   color: #b42318;
   border-color: #fecdd3;
 }
+.full-span {
+  grid-column: 1 / -1;
+}
+
+.muted-text {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 8px 0 14px;
+}

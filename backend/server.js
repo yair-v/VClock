@@ -389,9 +389,11 @@ async function resolveUserSchedule(userId) {
     `SELECT
        u.*,
        wg.name AS work_group_name,
-       wg.work_days AS work_group_days
+       wg.work_days AS work_group_days,
+       d.name AS department_name
      FROM users u
      LEFT JOIN work_groups wg ON wg.id = u.work_group_id
+     LEFT JOIN departments d ON d.id = u.department_id
      WHERE u.id = $1`,
     [userId]
   );
@@ -403,6 +405,59 @@ async function resolveUserSchedule(userId) {
     ...user,
     allowed_work_days: normalizeWeekDays(parseJsonArray(user.allowed_work_days)),
     work_group_days: normalizeWeekDays(parseJsonArray(user.work_group_days))
+  };
+}
+
+
+function normalizeRuleValue(value) {
+  const text = String(value || '').trim();
+  return text || 'all';
+}
+
+function isRuleMatch(rule, { user, recordType, workDayType, weekDayName, currentMinutes }) {
+  const departmentId = rule.department_id ? Number(rule.department_id) : null;
+  if (departmentId && Number(user.department_id || 0) !== departmentId) return false;
+
+  if (normalizeRuleValue(rule.week_day) !== 'all' && normalizeRuleValue(rule.week_day) !== weekDayName) return false;
+  if (normalizeRuleValue(rule.record_type) !== 'all' && normalizeRuleValue(rule.record_type) !== recordType) return false;
+  if (normalizeRuleValue(rule.work_day_type) !== 'all' && normalizeRuleValue(rule.work_day_type) !== workDayType) return false;
+
+  const from = String(rule.time_from || '').trim();
+  const to = String(rule.time_to || '').trim();
+  if (from && currentMinutes < getTimeMinutes(from)) return false;
+  if (to && currentMinutes > getTimeMinutes(to)) return false;
+
+  return true;
+}
+
+async function evaluateSystemRules({ user, recordType, workDayType, weekDayName }) {
+  const currentMinutes = getCurrentTimeMinutes();
+  const rulesResult = await query(
+    `SELECT sr.*, d.name AS department_name
+     FROM system_rules sr
+     LEFT JOIN departments d ON d.id = sr.department_id
+     WHERE sr.is_active = 1
+     ORDER BY sr.id ASC`
+  );
+
+  const matchedRules = rulesResult.rows.filter((rule) => isRuleMatch(rule, {
+    user,
+    recordType,
+    workDayType,
+    weekDayName,
+    currentMinutes
+  }));
+
+  const blockedRule = matchedRules.find((rule) => rule.rule_action === 'block');
+  const approvalRules = matchedRules.filter((rule) => rule.rule_action === 'require_approval');
+
+  return {
+    blocked: Boolean(blockedRule),
+    blockedMessage: blockedRule ? (blockedRule.message || `הפעולה נחסמה לפי חוק מערכת: ${blockedRule.rule_name}`) : '',
+    requiresApproval: approvalRules.length > 0,
+    exceptionReason: approvalRules.length ? (approvalRules[0].message || `נדרש אישור מנהל לפי חוק מערכת: ${approvalRules[0].rule_name}`) : '',
+    messages: matchedRules.map((rule) => rule.message || `חוק מערכת הופעל: ${rule.rule_name}`).filter(Boolean),
+    matchedRules
   };
 }
 
@@ -475,13 +530,44 @@ async function validateAttendanceRequest({ user, recordType, workDayType }) {
     messages.push(exceptionReason);
   }
 
+  const rulesValidation = await evaluateSystemRules({
+    user,
+    recordType,
+    workDayType,
+    weekDayName
+  });
+
+  if (rulesValidation.blocked) {
+    return {
+      settings,
+      holidayName: holiday ? holiday.holiday_name : '',
+      blocked: true,
+      blockedMessage: rulesValidation.blockedMessage,
+      requiresAdminApproval: false,
+      approvalStatus: 'blocked',
+      exceptionReason: rulesValidation.blockedMessage,
+      message: rulesValidation.blockedMessage,
+      matchedRules: rulesValidation.matchedRules
+    };
+  }
+
+  if (rulesValidation.requiresApproval) {
+    requiresAdminApproval = true;
+    approvalStatus = 'pending';
+    exceptionReason = exceptionReason || rulesValidation.exceptionReason;
+  }
+
+  messages.push(...rulesValidation.messages);
+
   return {
     settings,
     holidayName: holiday ? holiday.holiday_name : '',
+    blocked: false,
     requiresAdminApproval,
     approvalStatus,
     exceptionReason,
-    message: messages.join(' | ')
+    message: messages.join(' | '),
+    matchedRules: rulesValidation.matchedRules
   };
 }
 
@@ -1012,6 +1098,10 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       workDayType
     });
 
+    if (validation.blocked) {
+      return res.status(403).json({ error: validation.blockedMessage || validation.message || 'הפעולה נחסמה לפי חוק מערכת' });
+    }
+
     const normalizedMealType = normalizeMealType(meal_type);
     const mealCity = normalizedMealType && location_status === 'ok'
       ? await getNearestCityFromCoords(latitude, longitude)
@@ -1211,6 +1301,10 @@ app.post('/api/nfc/attendance', async (req, res) => {
       recordType: nextRecordType,
       workDayType
     });
+
+    if (validation.blocked) {
+      return res.status(403).json({ error: validation.blockedMessage || validation.message || 'הפעולה נחסמה לפי חוק מערכת', uid });
+    }
 
     const inserted = await query(
       `INSERT INTO attendance_records
@@ -2311,6 +2405,84 @@ app.delete('/api/admin/holidays/:id', authRequired, adminRequired, async (req, r
       [id]
     );
 
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.use('/api/admin/departments', authRequired, adminRequired, require('./routes/departments'));
+
+app.get('/api/admin/rules', authRequired, adminRequired, async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT sr.*, d.name AS department_name
+       FROM system_rules sr
+       LEFT JOIN departments d ON d.id = sr.department_id
+       ORDER BY sr.is_active DESC, sr.id DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/rules', authRequired, adminRequired, async (req, res) => {
+  try {
+    const ruleName = String(req.body.rule_name || '').trim();
+    if (!ruleName) return res.status(400).json({ error: 'יש להזין שם חוק' });
+    const departmentId = req.body.department_id ? Number(req.body.department_id) : null;
+    const weekDay = normalizeRuleValue(req.body.week_day);
+    const recordType = normalizeRuleValue(req.body.record_type);
+    const workDayType = normalizeRuleValue(req.body.work_day_type);
+    const timeFrom = String(req.body.time_from || '').trim();
+    const timeTo = String(req.body.time_to || '').trim();
+    const ruleAction = ['block', 'require_approval', 'warning'].includes(req.body.rule_action) ? req.body.rule_action : 'warning';
+    const message = String(req.body.message || '').trim();
+    const isActive = req.body.is_active ? 1 : 0;
+    await query(
+      `INSERT INTO system_rules
+       (rule_name, department_id, week_day, record_type, work_day_type, time_from, time_to, rule_action, message, is_active, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+      [ruleName, departmentId, weekDay, recordType, workDayType, timeFrom, timeTo, ruleAction, message, isActive]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/rules/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const ruleName = String(req.body.rule_name || '').trim();
+    if (!ruleName) return res.status(400).json({ error: 'יש להזין שם חוק' });
+    const departmentId = req.body.department_id ? Number(req.body.department_id) : null;
+    const weekDay = normalizeRuleValue(req.body.week_day);
+    const recordType = normalizeRuleValue(req.body.record_type);
+    const workDayType = normalizeRuleValue(req.body.work_day_type);
+    const timeFrom = String(req.body.time_from || '').trim();
+    const timeTo = String(req.body.time_to || '').trim();
+    const ruleAction = ['block', 'require_approval', 'warning'].includes(req.body.rule_action) ? req.body.rule_action : 'warning';
+    const message = String(req.body.message || '').trim();
+    const isActive = req.body.is_active ? 1 : 0;
+    await query(
+      `UPDATE system_rules
+       SET rule_name = $1, department_id = $2, week_day = $3, record_type = $4, work_day_type = $5,
+           time_from = $6, time_to = $7, rule_action = $8, message = $9, is_active = $10
+       WHERE id = $11`,
+      [ruleName, departmentId, weekDay, recordType, workDayType, timeFrom, timeTo, ruleAction, message, isActive, id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/rules/:id', authRequired, adminRequired, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    await query(`DELETE FROM system_rules WHERE id = $1`, [id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -108,6 +108,7 @@ export default function AdminSettingsPage() {
         <div className="action-buttons" style={{ marginTop: 12, flexWrap: 'wrap' }}>
           <Link className="nav-btn" to="/security">אבטחה</Link>
           <Link className="nav-btn" to="/admin/departments">מחלקות</Link>
+          <Link className="nav-btn" to="/admin/rules">חוקי מערכת</Link>
           <Link className="nav-btn" to="/admin/users">משתמשים</Link>
         </div>
       </div>
