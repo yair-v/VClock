@@ -9,7 +9,6 @@ import AdminUsersPage from './pages/AdminUsersPage';
 import AdminMonthlyPage from './pages/AdminMonthlyPage';
 import AdminDepartmentsPage from './pages/AdminDepartmentsPage';
 import AdminSettingsPage from './pages/AdminSettingsPage';
-import AdminRulesPage from './pages/AdminRulesPage';
 import TwoFactorPage from './pages/TwoFactorPage';
 import TwoFactorSettingsPage from './pages/TwoFactorSettingsPage';
 import BrandLogo from './components/BrandLogo';
@@ -242,10 +241,6 @@ function Layout({ children }) {
                                 הגדרות כלליות
                               </MenuLink>
 
-                              <MenuLink to="/admin/rules" onNavigate={closeMenu} className="menu-link sub-menu-link">
-                                חוקי מערכת
-                              </MenuLink>
-
                               <MenuLink to="/admin/departments" onNavigate={closeMenu} className="menu-link sub-menu-link">
                                 מחלקות
                               </MenuLink>
@@ -306,7 +301,6 @@ export default function App() {
         <Route path="/admin/monthly" element={<ProtectedRoute minRole="work_manager"><AdminMonthlyPage /></ProtectedRoute>} />
         <Route path="/admin/departments" element={<ProtectedRoute adminOnly><AdminDepartmentsPage /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute adminOnly><AdminSettingsPage /></ProtectedRoute>} />
-        <Route path="/admin/rules" element={<ProtectedRoute adminOnly><AdminRulesPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

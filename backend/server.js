@@ -473,34 +473,14 @@ function isRuleMatch(rule, { user, recordType, workDayType, weekDayName, current
   return true;
 }
 
-async function evaluateSystemRules({ user, recordType, workDayType, weekDayName, currentMinutes: requestedMinutes = null }) {
-  const currentMinutes = getCurrentTimeMinutes(requestedMinutes);
-  const rulesResult = await query(
-    `SELECT sr.*, d.name AS department_name
-     FROM system_rules sr
-     LEFT JOIN departments d ON d.id = sr.department_id
-     WHERE sr.is_active = 1
-     ORDER BY sr.id ASC`
-  );
-
-  const matchedRules = rulesResult.rows.filter((rule) => isRuleMatch(rule, {
-    user,
-    recordType,
-    workDayType,
-    weekDayName,
-    currentMinutes
-  }));
-
-  const blockedRule = matchedRules.find((rule) => rule.rule_action === 'block');
-  const approvalRules = matchedRules.filter((rule) => rule.rule_action === 'require_approval');
-
+async function evaluateSystemRules() {
   return {
-    blocked: Boolean(blockedRule),
-    blockedMessage: blockedRule ? (blockedRule.message || `הפעולה נחסמה לפי חוק מערכת: ${blockedRule.rule_name}`) : '',
-    requiresApproval: approvalRules.length > 0,
-    exceptionReason: approvalRules.length ? (approvalRules[0].message || `נדרש אישור מנהל לפי חוק מערכת: ${approvalRules[0].rule_name}`) : '',
-    messages: matchedRules.map((rule) => rule.message || `חוק מערכת הופעל: ${rule.rule_name}`).filter(Boolean),
-    matchedRules
+    blocked: false,
+    blockedMessage: '',
+    requiresApproval: false,
+    exceptionReason: '',
+    messages: [],
+    matchedRules: []
   };
 }
 
@@ -652,6 +632,32 @@ function managerRequired(req, res, next) {
 function normalizeRole(value) {
   const role = String(value || 'employee').trim();
   return ALLOWED_ROLES.includes(role) ? role : 'employee';
+}
+
+async function getVisibleUserIds(req) {
+  if (req.user?.role === 'admin') return null;
+
+  if (req.user?.role === 'work_manager') {
+    const managerRes = await query(
+      `SELECT department_id FROM users WHERE id = $1 LIMIT 1`,
+      [req.user.id]
+    );
+    const departmentId = managerRes.rows[0]?.department_id || null;
+
+    if (!departmentId) return [req.user.id];
+
+    const usersRes = await query(
+      `SELECT id FROM users WHERE id = $1 OR department_id = $2 ORDER BY full_name ASC`,
+      [req.user.id, departmentId]
+    );
+    return usersRes.rows.map((row) => row.id);
+  }
+
+  return [req.user.id];
+}
+
+function scopedAnyCondition(userIds, columnName, paramIndex) {
+  return userIds === null ? '1=1' : `${columnName} = ANY($${paramIndex}::int[])`;
 }
 
 async function getUserByLoginValue(loginValue) {
@@ -1473,54 +1479,30 @@ app.post('/api/nfc/attendance', async (req, res) => {
   }
 });
 
-app.get('/api/admin/dashboard', managerRequired, async (req, res) => {
+app.get('/api/admin/dashboard', authRequired, managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
-    const totalUsers = await query(
-      `SELECT COUNT(*)::int AS count FROM users WHERE role = 'employee'`
-    );
-    const activeUsers = await query(
-      `SELECT COUNT(*)::int AS count FROM users WHERE role = 'employee' AND is_active = 1`
-    );
-    const totalRecords = await query(
-      `SELECT COUNT(*)::int AS count FROM attendance_records`
-    );
-    const { start: workdayStart, end: workdayEnd } = getWorkdayWindow();
+    const userIds = await getVisibleUserIds(req);
+    const selectedDays = Math.min(Math.max(parseInt(req.query.days || '14', 10), 1), 60);
+    const scopeCondition = scopedAnyCondition(userIds, 'ar.user_id', 2);
+    const params = userIds === null ? [selectedDays] : [selectedDays, userIds];
 
-    const todayRecords = await query(
-      `SELECT COUNT(*)::int AS count
-       FROM attendance_records
-       WHERE record_time >= $1::timestamp
-         AND record_time < $2::timestamp`,
-      [formatSqlDateTimeLocal(workdayStart), formatSqlDateTimeLocal(workdayEnd)]
-    );
-    const pendingApprovals = await query(
-      `SELECT COUNT(*)::int AS count
-       FROM attendance_records
-       WHERE approval_status = 'pending'`
+    const result = await query(
+      `SELECT
+         DATE(ar.record_time) AS day,
+         COUNT(*) FILTER (WHERE ar.record_type = 'in')::int AS in_count,
+         COUNT(*) FILTER (WHERE ar.record_type = 'out')::int AS out_count
+       FROM attendance_records ar
+       WHERE DATE(ar.record_time) >= (CURRENT_DATE - (($1::int - 1) * INTERVAL '1 day'))
+         AND ${scopeCondition}
+       GROUP BY DATE(ar.record_time)
+       ORDER BY DATE(ar.record_time) DESC`,
+      params
     );
 
-    const actionRequests = await query(
-      `SELECT id, employee_code, full_name
-       FROM users
-       WHERE role = 'employee'
-         AND day_closed = 1
-       ORDER BY full_name ASC`
-    );
-
-    const monthLocks = await query(`SELECT * FROM period_locks ORDER BY month_key DESC LIMIT 12`);
-
-    res.json({
-      totalUsers: totalUsers.rows[0].count,
-      activeUsers: activeUsers.rows[0].count,
-      totalRecords: totalRecords.rows[0].count,
-      todayRecords: todayRecords.rows[0].count,
-      pendingApprovals: pendingApprovals.rows[0].count,
-      actionRequests: actionRequests.rows,
-      monthLocks: monthLocks.rows
-    });
+    res.json({ days: result.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1533,19 +1515,24 @@ app.get('/api/admin/reports', authRequired, managerRequired, async (req, res) =>
 
     const { employeeCode = '', fromDate = '', toDate = '', approvalStatus = '' } = req.query;
 
+    const userIds = await getVisibleUserIds(req);
+    const scopeCondition = scopedAnyCondition(userIds, 'ar.user_id', 5);
+
     const result = await query(
       `SELECT
          ar.*,
          u.employee_code,
-         u.full_name
+         u.full_name,
+         u.department_id
        FROM attendance_records ar
        JOIN users u ON u.id = ar.user_id
        WHERE ($1 = '' OR u.employee_code ILIKE '%' || $1 || '%' OR u.full_name ILIKE '%' || $1 || '%')
          AND ($2 = '' OR DATE(ar.record_time) >= $2::date)
          AND ($3 = '' OR DATE(ar.record_time) <= $3::date)
          AND ($4 = '' OR ar.approval_status = $4)
+         AND ${scopeCondition}
        ORDER BY ar.record_time DESC, ar.id DESC`,
-      [employeeCode, fromDate, toDate, approvalStatus]
+      userIds === null ? [employeeCode, fromDate, toDate, approvalStatus] : [employeeCode, fromDate, toDate, approvalStatus, userIds]
     );
 
     const rows = result.rows.map((r) => ({
@@ -1925,6 +1912,9 @@ app.get('/api/admin/monthly-summary', authRequired, managerRequired, async (req,
     const lunchCost = Number(settings.lunch_cost || 0);
     const dinnerCost = Number(settings.dinner_cost || 0);
 
+    const userIds = await getVisibleUserIds(req);
+    const scopeCondition = scopedAnyCondition(userIds, 'ar.user_id', 2);
+
     const result = await query(
       `SELECT
          u.employee_code,
@@ -1941,9 +1931,10 @@ app.get('/api/admin/monthly-summary', authRequired, managerRequired, async (req,
        FROM attendance_records ar
        JOIN users u ON u.id = ar.user_id
        WHERE TO_CHAR(ar.record_time, 'YYYY-MM') = $1
+         AND ${scopeCondition}
        GROUP BY u.employee_code, u.full_name, DATE(ar.record_time)
        ORDER BY work_date DESC, u.full_name ASC`,
-      [month]
+      userIds === null ? [month] : [month, userIds]
     );
 
     const rows = result.rows.map((r) => {
@@ -1981,8 +1972,11 @@ app.get('/api/admin/monthly-summary', authRequired, managerRequired, async (req,
   }
 });
 
-app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/users', authRequired, managerRequired, async (req, res) => {
   try {
+    const userIds = await getVisibleUserIds(req);
+    const scopeCondition = scopedAnyCondition(userIds, 'u.id', 1);
+
     const result = await query(
       `SELECT
          u.id,
@@ -2004,7 +1998,9 @@ app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
        FROM users u
        LEFT JOIN work_groups wg ON wg.id = u.work_group_id
        LEFT JOIN departments d ON d.id = u.department_id
-       ORDER BY u.employee_code ASC`
+       WHERE ${scopeCondition}
+       ORDER BY u.employee_code ASC`,
+      userIds === null ? [] : [userIds]
     );
 
     res.json(result.rows.map((row) => ({
@@ -2503,129 +2499,21 @@ app.delete('/api/admin/holidays/:id', authRequired, adminRequired, async (req, r
 app.use('/api/admin/departments', authRequired, adminRequired, require('./routes/departments'));
 
 app.get('/api/admin/rules', authRequired, adminRequired, async (req, res) => {
-  try {
-    const result = await query(
-      `SELECT sr.*, d.name AS department_name
-       FROM system_rules sr
-       LEFT JOIN departments d ON d.id = sr.department_id
-       ORDER BY sr.is_active DESC, sr.id DESC`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.json([]);
 });
 
 app.post('/api/admin/rules', authRequired, adminRequired, async (req, res) => {
-  try {
-    const ruleName = String(req.body.rule_name || '').trim();
-    if (!ruleName) return res.status(400).json({ error: 'יש להזין שם חוק' });
-    const departmentId = req.body.department_id ? Number(req.body.department_id) : null;
-    const weekDay = normalizeRuleValue(req.body.week_day);
-    const recordType = normalizeRuleValue(req.body.record_type);
-    const workDayType = normalizeRuleValue(req.body.work_day_type);
-    const timeFrom = String(req.body.time_from || '').trim();
-    const timeTo = String(req.body.time_to || '').trim();
-    const ruleAction = ['block', 'require_approval', 'warning'].includes(req.body.rule_action) ? req.body.rule_action : 'warning';
-    const message = String(req.body.message || '').trim();
-    const isActive = req.body.is_active ? 1 : 0;
-    await query(
-      `INSERT INTO system_rules
-       (rule_name, department_id, week_day, record_type, work_day_type, time_from, time_to, rule_action, message, is_active, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
-      [ruleName, departmentId, weekDay, recordType, workDayType, timeFrom, timeTo, ruleAction, message, isActive]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(410).json({ error: 'חוקי מערכת הוסרו מהמערכת' });
 });
 
 app.put('/api/admin/rules/:id', authRequired, adminRequired, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const ruleName = String(req.body.rule_name || '').trim();
-    if (!ruleName) return res.status(400).json({ error: 'יש להזין שם חוק' });
-    const departmentId = req.body.department_id ? Number(req.body.department_id) : null;
-    const weekDay = normalizeRuleValue(req.body.week_day);
-    const recordType = normalizeRuleValue(req.body.record_type);
-    const workDayType = normalizeRuleValue(req.body.work_day_type);
-    const timeFrom = String(req.body.time_from || '').trim();
-    const timeTo = String(req.body.time_to || '').trim();
-    const ruleAction = ['block', 'require_approval', 'warning'].includes(req.body.rule_action) ? req.body.rule_action : 'warning';
-    const message = String(req.body.message || '').trim();
-    const isActive = req.body.is_active ? 1 : 0;
-    await query(
-      `UPDATE system_rules
-       SET rule_name = $1, department_id = $2, week_day = $3, record_type = $4, work_day_type = $5,
-           time_from = $6, time_to = $7, rule_action = $8, message = $9, is_active = $10
-       WHERE id = $11`,
-      [ruleName, departmentId, weekDay, recordType, workDayType, timeFrom, timeTo, ruleAction, message, isActive, id]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(410).json({ error: 'חוקי מערכת הוסרו מהמערכת' });
 });
 
 app.delete('/api/admin/rules/:id', authRequired, adminRequired, async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    await query(`DELETE FROM system_rules WHERE id = $1`, [id]);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  res.status(410).json({ error: 'חוקי מערכת הוסרו מהמערכת' });
 });
 
-app.get('/api/admin/settings', authRequired, adminRequired, async (req, res) => {
-  try {
-    const settings = await getSettingsRow();
-
-    res.json({
-      ...settings,
-      work_day_types: parseWorkDayTypes(settings.work_day_types),
-      breakfast_cost: Number(settings.breakfast_cost || 0),
-      lunch_cost: Number(settings.lunch_cost || 0),
-      dinner_cost: Number(settings.dinner_cost || 0)
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/admin/settings', authRequired, adminRequired, async (req, res) => {
-  try {
-    const workDayTypes = Array.isArray(req.body.work_day_types)
-      ? req.body.work_day_types.filter(Boolean)
-      : [];
-
-    await query(
-      `UPDATE settings
-       SET prevent_double_checkin = $1,
-           prevent_checkout_without_checkin = $2,
-           allow_multiple_sessions_per_day = $3,
-           work_day_types = $4,
-           breakfast_cost = $5,
-           lunch_cost = $6,
-           dinner_cost = $7
-       WHERE id = 1`,
-      [
-        req.body.prevent_double_checkin ? 1 : 0,
-        req.body.prevent_checkout_without_checkin ? 1 : 0,
-        req.body.allow_multiple_sessions_per_day ? 1 : 0,
-        JSON.stringify(workDayTypes.length ? workDayTypes : DEFAULT_WORK_DAY_TYPES),
-        Number(req.body.breakfast_cost || 0),
-        Number(req.body.lunch_cost || 0),
-        Number(req.body.dinner_cost || 0)
-      ]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.get('/api/admin/export', authRequired, managerRequired, async (req, res) => {
   try {
