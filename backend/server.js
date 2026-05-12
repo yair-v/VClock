@@ -137,7 +137,8 @@ function resolveRecordDateTime(recordDateTime) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  if (requested.getTime() > now.getTime() + 60 * 1000) {
+  // allow small timezone / browser drift so closing a shift at current time will not fail
+  if (requested.getTime() > now.getTime() + 10 * 60 * 1000) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
