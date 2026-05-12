@@ -34,14 +34,17 @@ function getCurrentUser() {
   }
 }
 
-function ProtectedRoute({ children, adminOnly = false }) {
+const ROLE_RANKS = { employee: 1, work_manager: 2, admin: 3 };
+
+function ProtectedRoute({ children, adminOnly = false, minRole = 'employee' }) {
   const user = getCurrentUser();
 
   if (!user) {
     return <Navigate to="/" replace />;
   }
 
-  if (adminOnly && user.role !== 'admin') {
+  const requiredRole = adminOnly ? 'admin' : minRole;
+  if ((ROLE_RANKS[user.role] || 0) < (ROLE_RANKS[requiredRole] || 999)) {
     return <Navigate to="/employee" replace />;
   }
 
@@ -209,7 +212,7 @@ function Layout({ children }) {
                     </>
                   )}
 
-                  {user.role === 'admin' && (
+                  {(user.role === 'admin' || user.role === 'work_manager') && (
                     <>
                       <MenuLink to="/admin/dashboard" onNavigate={closeMenu}>
                         דשבורד
@@ -233,24 +236,28 @@ function Layout({ children }) {
 
                       {settingsOpen && (
                         <div style={{ display: 'grid', gap: 8, paddingRight: 12 }}>
-                          <MenuLink to="/admin/settings" onNavigate={closeMenu} className="menu-link sub-menu-link">
-                            הגדרות כלליות
-                          </MenuLink>
+                          {user.role === 'admin' && (
+                            <>
+                              <MenuLink to="/admin/settings" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                                הגדרות כלליות
+                              </MenuLink>
 
-                          <MenuLink to="/admin/rules" onNavigate={closeMenu} className="menu-link sub-menu-link">
-                            חוקי מערכת
-                          </MenuLink>
+                              <MenuLink to="/admin/rules" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                                חוקי מערכת
+                              </MenuLink>
+
+                              <MenuLink to="/admin/departments" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                                מחלקות
+                              </MenuLink>
+
+                              <MenuLink to="/admin/users" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                                משתמשים והרשאות
+                              </MenuLink>
+                            </>
+                          )}
 
                           <MenuLink to="/security" onNavigate={closeMenu} className="menu-link sub-menu-link">
                             אבטחה
-                          </MenuLink>
-
-                          <MenuLink to="/admin/departments" onNavigate={closeMenu} className="menu-link sub-menu-link">
-                            מחלקות
-                          </MenuLink>
-
-                          <MenuLink to="/admin/users" onNavigate={closeMenu} className="menu-link sub-menu-link">
-                            משתמשים
                           </MenuLink>
                         </div>
                       )}
@@ -293,10 +300,10 @@ export default function App() {
         <Route path="/employee" element={<ProtectedRoute><EmployeePage /></ProtectedRoute>} />
         <Route path="/my-reports" element={<ProtectedRoute><MyReportsPage /></ProtectedRoute>} />
         <Route path="/security" element={<ProtectedRoute><TwoFactorSettingsPage /></ProtectedRoute>} />
-        <Route path="/admin/dashboard" element={<ProtectedRoute adminOnly><AdminDashboardPage /></ProtectedRoute>} />
-        <Route path="/admin/reports" element={<ProtectedRoute adminOnly><AdminReportsPage /></ProtectedRoute>} />
+        <Route path="/admin/dashboard" element={<ProtectedRoute minRole="work_manager"><AdminDashboardPage /></ProtectedRoute>} />
+        <Route path="/admin/reports" element={<ProtectedRoute minRole="work_manager"><AdminReportsPage /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsersPage /></ProtectedRoute>} />
-        <Route path="/admin/monthly" element={<ProtectedRoute adminOnly><AdminMonthlyPage /></ProtectedRoute>} />
+        <Route path="/admin/monthly" element={<ProtectedRoute minRole="work_manager"><AdminMonthlyPage /></ProtectedRoute>} />
         <Route path="/admin/departments" element={<ProtectedRoute adminOnly><AdminDepartmentsPage /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute adminOnly><AdminSettingsPage /></ProtectedRoute>} />
         <Route path="/admin/rules" element={<ProtectedRoute adminOnly><AdminRulesPage /></ProtectedRoute>} />

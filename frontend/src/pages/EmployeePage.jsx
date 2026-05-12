@@ -12,7 +12,6 @@ const defaultWorkDayOptions = [
   'מחלת משפחה',
   'מילואים',
   'עבודה מהבית',
-  'ארוחה',
   'אחר'
 ];
 
@@ -25,19 +24,17 @@ function normalizeUser(user) {
   };
 }
 
-function MealCheckbox({ label, value, selectedValue, onChange }) {
-  const checked = selectedValue === value;
+function toDateTimeInputValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
-  return (
-    <label className="checkbox-row" style={{ minWidth: 140 }}>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={() => onChange(checked ? '' : value)}
-      />
-      <span>{label}</span>
-    </label>
-  );
+function getMinRecordDateTime() {
+  return toDateTimeInputValue(new Date(Date.now() - 72 * 60 * 60 * 1000));
+}
+
+function getMaxRecordDateTime() {
+  return toDateTimeInputValue(new Date());
 }
 
 export default function EmployeePage() {
@@ -46,10 +43,8 @@ export default function EmployeePage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [workDayType, setWorkDayType] = useState('יום רגיל');
-  const [note, setNote] = useState('');
-  const [mealType, setMealType] = useState('');
+  const [recordDateTime, setRecordDateTime] = useState(getMaxRecordDateTime());
   const [now, setNow] = useState(new Date());
-  const [locationLoading, setLocationLoading] = useState(false);
 
   const user = useMemo(() => {
     try {
@@ -79,89 +74,52 @@ export default function EmployeePage() {
 
   useEffect(() => {
     loadStatus();
-    const interval = window.setInterval(() => setNow(new Date()), 1000);
+    const interval = window.setInterval(() => {
+      setNow(new Date());
+    }, 1000);
     return () => window.clearInterval(interval);
   }, []);
-
-  function getLocation() {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        resolve({ latitude: '', longitude: '', location_status: 'unsupported' });
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            latitude: String(position.coords.latitude || ''),
-            longitude: String(position.coords.longitude || ''),
-            location_status: 'ok'
-          });
-        },
-        () => {
-          resolve({ latitude: '', longitude: '', location_status: 'denied' });
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 0
-        }
-      );
-    });
-  }
 
   async function submitRecord(recordType) {
     setError('');
     setMessage('');
     setLoading(true);
-    setLocationLoading(true);
 
     try {
-      const location = await getLocation();
       const data = await apiPost('/attendance', {
         recordType,
         workDayType,
-        note,
-        meal_type: mealType,
-        latitude: location.latitude,
-        longitude: location.longitude,
-        location_status: location.location_status
+        recordDateTime,
+        note: '',
+        latitude: '',
+        longitude: '',
+        location_status: 'manual'
       });
 
-      let successMessage = data.message || 'הדיווח נשמר בהצלחה';
-      if (mealType && data.meal_city) {
-        const mealLabel = mealType === 'breakfast'
-          ? 'ארוחת בוקר'
-          : mealType === 'lunch'
-            ? 'ארוחת צהריים'
-            : 'ארוחת ערב';
-        successMessage = `${successMessage} | ${mealLabel}${data.meal_city ? ` (${data.meal_city})` : ''}`;
-      }
-
-      setMessage(successMessage);
-      setNote('');
-      setMealType('');
+      setMessage(data.message || 'הדיווח נשמר בהצלחה');
+      setRecordDateTime(getMaxRecordDateTime());
       await loadStatus();
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
-      setLocationLoading(false);
     }
   }
 
   const isCheckedIn = status?.lastRecord?.record_type === 'in';
   const workDayOptions = status?.workDayTypes?.length ? status.workDayTypes : defaultWorkDayOptions;
+  const minDateTime = getMinRecordDateTime();
+  const maxDateTime = getMaxRecordDateTime();
 
   return (
     <div className="employee-page">
-      <div className="phone-card">
+      <div className="phone-card simple-attendance-card">
         <div className="section-title">דיווח נוכחות</div>
 
         <div className="info-grid">
           <div className="info-box"><strong>שם עובד</strong><span>{user.fullName || '-'}</span></div>
           <div className="info-box"><strong>קוד עובד</strong><span>{user.employeeCode || '-'}</span></div>
-          <div className="info-box full"><strong>תאריך ושעה</strong><span>{now.toLocaleString('he-IL')}</span></div>
+          <div className="info-box full"><strong>שעה נוכחית</strong><span>{now.toLocaleString('he-IL')}</span></div>
           <div className="info-box full"><strong>סטטוס נוכחי</strong><span>{isCheckedIn ? 'נמצא בעבודה' : 'לא נמצא בעבודה'}</span></div>
         </div>
 
@@ -175,27 +133,28 @@ export default function EmployeePage() {
             </select>
           </label>
 
-          <div>
-            <span style={{ display: 'block', marginBottom: 8, fontWeight: 700 }}>ארוחה</span>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <MealCheckbox label="ארוחת בוקר" value="breakfast" selectedValue={mealType} onChange={setMealType} />
-              <MealCheckbox label="ארוחת צהריים" value="lunch" selectedValue={mealType} onChange={setMealType} />
-              <MealCheckbox label="ארוחת ערב" value="dinner" selectedValue={mealType} onChange={setMealType} />
-            </div>
-          </div>
-
           <label>
-            <span>הערה</span>
-            <textarea rows="3" value={note} onChange={(e) => setNote(e.target.value)} placeholder="הערה חופשית" />
+            <span>תאריך ושעת הדיווח</span>
+            <input
+              type="datetime-local"
+              value={recordDateTime}
+              min={minDateTime}
+              max={maxDateTime}
+              onChange={(e) => setRecordDateTime(e.target.value)}
+            />
+            <small>ניתן לבחור תאריך ושעה עד 72 שעות אחורה בלבד.</small>
           </label>
 
           {message && <div className="alert success">{message}</div>}
           {error && <div className="alert error">{error}</div>}
-          {locationLoading && <div className="alert">מנסה לקבל מיקום מהמכשיר...</div>}
 
-          <div className="action-row">
-            <button className="primary-btn" disabled={loading} onClick={() => submitRecord('in')}>כניסה לעבודה</button>
-            <button className="secondary-btn" disabled={loading} onClick={() => submitRecord('out')}>יציאה מהעבודה</button>
+          <div className="attendance-action-grid">
+            <button className="primary-btn big-attendance-btn" disabled={loading} onClick={() => submitRecord('in')}>
+              כניסה
+            </button>
+            <button className="secondary-btn big-attendance-btn" disabled={loading} onClick={() => submitRecord('out')}>
+              יציאה
+            </button>
           </div>
         </div>
       </div>

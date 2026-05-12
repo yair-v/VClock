@@ -22,6 +22,9 @@ const REGULAR_DAY_TYPES = ['יום רגיל', 'עבודה מהבית'];
 const SPECIAL_AUTO_CLOSE_TYPES = ['מילואים', 'מחלה', 'מחלת משפחה'];
 const DEFAULT_WORK_DAY_TYPES = ['יום רגיל', 'שישי', 'שישי בתשלום', 'שבת', 'חג', 'חופשה', 'מחלה', 'מחלת משפחה', 'מילואים', 'עבודה מהבית', 'ארוחה', 'אחר'];
 const ALLOWED_MEAL_TYPES = ['breakfast', 'lunch', 'dinner'];
+const ROLE_LABELS = { employee: 'עובד', work_manager: 'מנהל עבודה', admin: 'מנהל מערכת' };
+const ROLE_RANKS = { employee: 1, work_manager: 2, admin: 3 };
+const ALLOWED_ROLES = Object.keys(ROLE_LABELS);
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '10mb' }));
@@ -108,6 +111,45 @@ function formatSqlDateTimeLocal(date) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
+function parseClientDateTime(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+
+  const [, y, m, d, h, min, sec = '00'] = match;
+  const date = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec));
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+function resolveRecordDateTime(recordDateTime) {
+  const now = new Date();
+  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : now;
+
+  if (!requested) {
+    return { error: 'תאריך או שעה אינם תקינים' };
+  }
+
+  const oldestAllowed = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+
+  if (requested.getTime() < oldestAllowed.getTime()) {
+    return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
+  }
+
+  if (requested.getTime() > now.getTime() + 60 * 1000) {
+    return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
+  }
+
+  return {
+    date: requested,
+    sql: formatSqlDateTimeLocal(requested),
+    dateString: formatSqlDateTimeLocal(requested).slice(0, 10),
+    timeString: formatSqlDateTimeLocal(requested).slice(11, 19),
+    minutes: requested.getHours() * 60 + requested.getMinutes()
+  };
+}
+
 function getDateStringFromValue(value) {
   if (!value) return '';
 
@@ -136,7 +178,8 @@ function getTimeMinutes(timeValue) {
   return (hour || 0) * 60 + (minute || 0);
 }
 
-function getCurrentTimeMinutes() {
+function getCurrentTimeMinutes(fallbackMinutes = null) {
+  if (typeof fallbackMinutes === 'number') return fallbackMinutes;
   const now = getNowInIsrael();
   return now.hour * 60 + now.minute;
 }
@@ -430,8 +473,8 @@ function isRuleMatch(rule, { user, recordType, workDayType, weekDayName, current
   return true;
 }
 
-async function evaluateSystemRules({ user, recordType, workDayType, weekDayName }) {
-  const currentMinutes = getCurrentTimeMinutes();
+async function evaluateSystemRules({ user, recordType, workDayType, weekDayName, currentMinutes: requestedMinutes = null }) {
+  const currentMinutes = getCurrentTimeMinutes(requestedMinutes);
   const rulesResult = await query(
     `SELECT sr.*, d.name AS department_name
      FROM system_rules sr
@@ -461,9 +504,9 @@ async function evaluateSystemRules({ user, recordType, workDayType, weekDayName 
   };
 }
 
-async function validateAttendanceRequest({ user, recordType, workDayType }) {
+async function validateAttendanceRequest({ user, recordType, workDayType, recordDateString = '', recordMinutes = null }) {
   const now = getNowInIsrael();
-  const dateString = now.dateString;
+  const dateString = recordDateString || now.dateString;
   const weekDayName = getWeekDayNameFromDateString(dateString);
   const messages = [];
   let requiresAdminApproval = false;
@@ -493,7 +536,7 @@ async function validateAttendanceRequest({ user, recordType, workDayType }) {
   }
 
   if (shouldApplyRegularHours(workDayType)) {
-    const currentMinutes = getCurrentTimeMinutes();
+    const currentMinutes = getCurrentTimeMinutes(recordMinutes);
     const startMinutes = getTimeMinutes('07:30');
     const endMinutes = getTimeMinutes('19:00');
 
@@ -534,7 +577,8 @@ async function validateAttendanceRequest({ user, recordType, workDayType }) {
     user,
     recordType,
     workDayType,
-    weekDayName
+    weekDayName,
+    currentMinutes: recordMinutes
   });
 
   if (rulesValidation.blocked) {
@@ -584,11 +628,30 @@ function authRequired(req, res, next) {
   }
 }
 
+function hasRole(userRole, minimumRole) {
+  return (ROLE_RANKS[userRole] || 0) >= (ROLE_RANKS[minimumRole] || 999);
+}
+
+function roleRequired(minimumRole) {
+  return (req, res, next) => {
+    if (!hasRole(req.user?.role, minimumRole)) {
+      return res.status(403).json({ error: 'אין הרשאה מתאימה לפעולה זו' });
+    }
+    next();
+  };
+}
+
 function adminRequired(req, res, next) {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin only' });
-  }
-  next();
+  return roleRequired('admin')(req, res, next);
+}
+
+function managerRequired(req, res, next) {
+  return roleRequired('work_manager')(req, res, next);
+}
+
+function normalizeRole(value) {
+  const role = String(value || 'employee').trim();
+  return ALLOWED_ROLES.includes(role) ? role : 'employee';
 }
 
 async function getUserByLoginValue(loginValue) {
@@ -648,6 +711,10 @@ function verifyTotpCode(secret, token) {
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, port: PORT, timezone: APP_TIMEZONE });
+});
+
+app.get('/api/roles', authRequired, (req, res) => {
+  res.json(ALLOWED_ROLES.map((value) => ({ value, label: ROLE_LABELS[value], rank: ROLE_RANKS[value] })));
 });
 
 app.post('/api/login', async (req, res) => {
@@ -1056,7 +1123,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       latitude,
       longitude,
       location_status,
-      meal_type
+      meal_type,
+      recordDateTime
     } = req.body;
 
     latitude = latitude || '';
@@ -1071,7 +1139,12 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       return res.status(400).json({ error: 'יש לבחור סוג יום עבודה' });
     }
 
-    const monthKey = getMonthKeyFromDateValue(new Date());
+    const resolvedRecordTime = resolveRecordDateTime(recordDateTime);
+    if (resolvedRecordTime.error) {
+      return res.status(400).json({ error: resolvedRecordTime.error });
+    }
+
+    const monthKey = getMonthKeyFromDateValue(resolvedRecordTime.date);
     if (await isMonthLocked(monthKey)) {
       return res.status(403).json({ error: 'החודש נעול לדיווח. יש לפנות למנהל.' });
     }
@@ -1095,7 +1168,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
     const validation = await validateAttendanceRequest({
       user,
       recordType,
-      workDayType
+      workDayType,
+      recordDateString: resolvedRecordTime.dateString,
+      recordMinutes: resolvedRecordTime.minutes
     });
 
     if (validation.blocked) {
@@ -1107,7 +1182,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       ? await getNearestCityFromCoords(latitude, longitude)
       : '';
 
-    const todayDate = getNowInIsrael().dateString;
+    const todayDate = resolvedRecordTime.dateString;
     const lastRecordDate = lastRecord?.record_time ? getDateStringFromValue(lastRecord.record_time) : '';
     const isClosedFromPreviousDay =
       Number(user.day_closed || 0) === 1 &&
@@ -1178,7 +1253,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
        )
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,
-         NOW(),NOW(),
+         $21,NOW(),
          $10,$11,$12,$13,$14,$15,$16,
          $17,$18,$19,$20
        )
@@ -1203,7 +1278,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         normalizedMealType,
         mealCity,
         normalizedMealType ? latitude : '',
-        normalizedMealType ? longitude : ''
+        normalizedMealType ? longitude : '',
+        resolvedRecordTime.sql
       ]
     );
 
@@ -1222,6 +1298,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       actionType: 'attendance',
       actionTitle: buildActionTitle(recordType, workDayType),
       details: [
+        `תאריך ושעה: ${resolvedRecordTime.sql}`,
         `סוג יום: ${workDayType}`,
         note ? `הערה: ${note}` : '',
         validation.exceptionReason ? `חריגה: ${validation.exceptionReason}` : '',
@@ -1396,7 +1473,7 @@ app.post('/api/nfc/attendance', async (req, res) => {
   }
 });
 
-app.get('/api/admin/dashboard', adminRequired, async (req, res) => {
+app.get('/api/admin/dashboard', managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
@@ -1449,7 +1526,7 @@ app.get('/api/admin/dashboard', adminRequired, async (req, res) => {
   }
 });
 
-app.get('/api/admin/reports', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/reports', authRequired, managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
@@ -1595,7 +1672,7 @@ app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, r
   }
 });
 
-app.get('/api/admin/action-logs', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/action-logs', authRequired, managerRequired, async (req, res) => {
   try {
     const { employeeCode = '', fromDate = '', toDate = '' } = req.query;
 
@@ -1832,7 +1909,7 @@ app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, asyn
   }
 });
 
-app.get('/api/admin/monthly-summary', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/monthly-summary', authRequired, managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
@@ -1920,10 +1997,13 @@ app.get('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          u.allowed_work_days,
          u.friday_rotation_anchor_date,
          u.friday_rotation_start_allowed,
+         u.department_id,
+         d.name AS department_name,
          wg.name AS work_group_name,
          wg.work_days AS work_group_days
        FROM users u
        LEFT JOIN work_groups wg ON wg.id = u.work_group_id
+       LEFT JOIN departments d ON d.id = u.department_id
        ORDER BY u.employee_code ASC`
     );
 
@@ -1949,7 +2029,8 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       work_group_id,
       allowed_work_days,
       friday_rotation_anchor_date,
-      friday_rotation_start_allowed
+      friday_rotation_start_allowed,
+      department_id
     } = req.body;
 
     if (!employee_code || !full_name || !password) {
@@ -1989,21 +2070,23 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
          work_group_id,
          allowed_work_days,
          friday_rotation_anchor_date,
-         friday_rotation_start_allowed
+         friday_rotation_start_allowed,
+         department_id
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8,$9,$10,$11)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8,$9,$10,$11,$12)`,
       [
         String(employee_code),
         String(full_name),
         bcrypt.hashSync(String(password), 10),
-        role === 'admin' ? 'admin' : 'employee',
+        normalizeRole(role),
         is_active ? 1 : 0,
         0,
         nextNfcUid,
         work_group_id ? parseInt(work_group_id, 10) : null,
         JSON.stringify(normalizeWeekDays(allowed_work_days)),
         friday_rotation_anchor_date || getNowInIsrael().dateString,
-        friday_rotation_start_allowed ? 1 : 0
+        friday_rotation_start_allowed ? 1 : 0,
+        department_id ? parseInt(department_id, 10) : null
       ]
     );
 
@@ -2027,7 +2110,8 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       work_group_id,
       allowed_work_days,
       friday_rotation_anchor_date,
-      friday_rotation_start_allowed
+      friday_rotation_start_allowed,
+      department_id
     } = req.body;
 
     const userRes = await query(
@@ -2042,7 +2126,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
 
     const nextEmployeeCode = typeof employee_code !== 'undefined' ? String(employee_code).trim() : user.employee_code;
     const nextName = typeof full_name !== 'undefined' ? String(full_name) : user.full_name;
-    const nextRole = typeof role !== 'undefined' ? (role === 'admin' ? 'admin' : 'employee') : user.role;
+    const nextRole = typeof role !== 'undefined' ? normalizeRole(role) : user.role;
     const nextActive = typeof is_active !== 'undefined' ? (is_active ? 1 : 0) : user.is_active;
     const nextClosed = typeof day_closed !== 'undefined' ? (day_closed ? 1 : 0) : user.day_closed;
     const nextNfcUid = typeof nfc_uid !== 'undefined' ? normalizeNfcUid(nfc_uid) : (user.nfc_uid || '');
@@ -2061,6 +2145,9 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
     const nextFridayStartAllowed = typeof friday_rotation_start_allowed !== 'undefined'
       ? (friday_rotation_start_allowed ? 1 : 0)
       : user.friday_rotation_start_allowed;
+    const nextDepartmentId = typeof department_id !== 'undefined'
+      ? (department_id ? parseInt(department_id, 10) : null)
+      : user.department_id;
 
     if (!nextEmployeeCode || !nextName) {
       return res.status(400).json({ error: 'יש למלא קוד עובד ושם מלא' });
@@ -2097,8 +2184,9 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
            work_group_id = $8,
            allowed_work_days = $9,
            friday_rotation_anchor_date = $10,
-           friday_rotation_start_allowed = $11
-       WHERE id = $12`,
+           friday_rotation_start_allowed = $11,
+           department_id = $12
+       WHERE id = $13`,
       [
         nextEmployeeCode,
         nextName,
@@ -2111,6 +2199,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
         nextAllowedWorkDays,
         nextFridayAnchorDate,
         nextFridayStartAllowed,
+        nextDepartmentId,
         id
       ]
     );
@@ -2121,7 +2210,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
   }
 });
 
-app.post('/api/admin/users/:id/reopen-day', authRequired, adminRequired, async (req, res) => {
+app.post('/api/admin/users/:id/reopen-day', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
 
@@ -2538,7 +2627,7 @@ app.put('/api/admin/settings', authRequired, adminRequired, async (req, res) => 
   }
 });
 
-app.get('/api/admin/export', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/export', authRequired, managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
@@ -2607,7 +2696,7 @@ app.post('/api/admin/shutdown', authRequired, adminRequired, (req, res) => {
   setTimeout(() => process.exit(0), 500);
 });
 
-app.get('/api/admin/dashboard-stats', authRequired, adminRequired, async (req, res) => {
+app.get('/api/admin/dashboard-stats', authRequired, managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();

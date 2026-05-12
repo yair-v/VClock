@@ -155,7 +155,8 @@ export default function AdminUsersPage() {
   return (
     <div className="card-page users-layout">
       <div className="table-card">
-        <div className="section-title">ניהול עובדים</div>
+        <div className="section-title">ניהול עובדים והרשאות</div>
+        <div className="alert">מדרג הרשאות: עובד - דיווחים אישיים בלבד | מנהל עבודה - צפייה בדוחות וניהול יום עבודה | מנהל מערכת - ניהול מלא של משתמשים, הגדרות וחוקים.</div>
 
         {message && <div className="alert success">{message}</div>}
         {error && <div className="alert error">{error}</div>}
@@ -179,7 +180,7 @@ export default function AdminUsersPage() {
               <tr key={user.id}>
                 <td>{user.employee_code}</td>
                 <td>{user.full_name}</td>
-                <td>{user.role}</td>
+                <td>{user.role === 'admin' ? 'מנהל מערכת' : user.role === 'work_manager' ? 'מנהל עבודה' : 'עובד'}</td>
                 <td>{user.department_name || '-'}</td>
                 <td dir="ltr">{user.nfc_uid || '-'}</td>
                 <td>{user.is_active ? 'פעיל' : 'חסום'}</td>
@@ -280,7 +281,8 @@ export default function AdminUsersPage() {
               onChange={(e) => setForm({ ...form, role: e.target.value })}
             >
               <option value="employee">עובד</option>
-              <option value="admin">מנהל</option>
+              <option value="work_manager">מנהל עבודה</option>
+              <option value="admin">מנהל מערכת</option>
             </select>
           </label>
 
