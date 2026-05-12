@@ -37,7 +37,8 @@ export default function MyReportsPage() {
         <table>
           <thead>
             <tr>
-              <th>תאריך ושעה</th>
+              <th>הזמן שהוזן ידנית</th>
+              <th>חותמת זמן ביצוע הפעולה</th>
               <th>סוג</th>
               <th>סוג יום</th>
               <th>הערה</th>
@@ -47,13 +48,14 @@ export default function MyReportsPage() {
             {rows.map((row) => (
               <tr key={row.id}>
                 <td>{new Date(row.record_time).toLocaleString('he-IL')}</td>
+                <td>{row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '-'}</td>
                 <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
                 <td>{row.work_day_type}</td>
                 <td>{row.note || '-'}</td>
               </tr>
             ))}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan="4" className="empty-cell">אין דיווחים</td></tr>
+              <tr><td colSpan="5" className="empty-cell">אין דיווחים</td></tr>
             )}
           </tbody>
         </table>

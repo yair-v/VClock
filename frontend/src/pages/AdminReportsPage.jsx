@@ -356,7 +356,8 @@ export default function AdminReportsPage() {
               <th>עיר</th>
               <th>חריגה</th>
               <th>סטטוס</th>
-              <th>תאריך ושעה</th>
+              <th>הזמן שהוזן ידנית</th>
+              <th>חותמת זמן ביצוע הפעולה</th>
               <th>פעולות</th>
             </tr>
           </thead>
@@ -468,6 +469,8 @@ export default function AdminReportsPage() {
                     )}
                   </td>
 
+                  <td>{formatDateTime(row.created_at)}</td>
+
                   <td>
                     <div className="action-buttons">
                       {isEditing ? (
@@ -506,7 +509,7 @@ export default function AdminReportsPage() {
 
             {rows.length === 0 && (
               <tr>
-                <td colSpan="12" className="empty-cell">אין נתונים</td>
+                <td colSpan="13" className="empty-cell">אין נתונים</td>
               </tr>
             )}
           </tbody>

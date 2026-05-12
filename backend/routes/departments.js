@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
 
+
+function adminOnly(req, res, next) {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'רק מנהל מערכת יכול לשנות מחלקות' });
+  }
+  next();
+}
+
 router.get('/', async (req, res) => {
   try {
     const result = await query(
@@ -15,7 +23,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', adminOnly, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     const description = String(req.body.description || '').trim();
@@ -40,7 +48,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', adminOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const name = String(req.body.name || '').trim();
@@ -69,7 +77,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', adminOnly, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
 

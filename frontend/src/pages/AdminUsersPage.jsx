@@ -22,6 +22,7 @@ function getCurrentUserRole() {
 export default function AdminUsersPage() {
   const currentRole = getCurrentUserRole();
   const isAdmin = currentRole === 'admin';
+  const canManageDepartmentUsers = currentRole === 'admin' || currentRole === 'work_manager';
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [form, setForm] = useState(defaultForm);
@@ -166,7 +167,7 @@ export default function AdminUsersPage() {
     <div className="card-page users-layout">
       <div className="table-card">
         <div className="section-title">ניהול עובדים והרשאות</div>
-        <div className="alert">מדרג הרשאות: עובד רואה רק את עצמו | מנהל עבודה רואה רק עובדים ודיווחים במחלקה שלו | מנהל מערכת רואה הכל. חובה לשייך כל עובד או מנהל עבודה למחלקה.</div>
+        <div className="alert">מדרג הרשאות: עובד רואה רק את עצמו | מנהל עבודה רואה ועורך רק עובדים ודיווחים במחלקה שלו | מנהל מערכת רואה הכל. חובה לשייך כל עובד או מנהל עבודה למחלקה.</div>
 
         {message && <div className="alert success">{message}</div>}
         {error && <div className="alert error">{error}</div>}
@@ -197,7 +198,7 @@ export default function AdminUsersPage() {
                 <td>{user.day_closed ? 'כן' : 'לא'}</td>
                 <td>
                   <div className="action-buttons">
-                    {isAdmin && (
+                    {canManageDepartmentUsers && (
                       <>
                         <button
                           className="secondary-btn small"
@@ -234,7 +235,7 @@ export default function AdminUsersPage() {
                       </button>
                     )}
 
-                    {isAdmin && (
+                    {canManageDepartmentUsers && (
                       <button
                         className="danger-btn small"
                         onClick={() => deleteUser(user)}
@@ -258,11 +259,13 @@ export default function AdminUsersPage() {
         </table>
       </div>
 
-      {isAdmin && (
+      {canManageDepartmentUsers && (
       <div className="table-card">
         <div className="section-title">
           {editingId ? 'עריכת עובד' : 'הוספת עובד'}
         </div>
+
+        {!isAdmin && <div className="alert">מנהל עבודה יכול להוסיף/לערוך עובדים במחלקה שלו בלבד. התפקיד והמחלקה נאכפים אוטומטית לפי המחלקה שלך.</div>}
 
         <form className="form-grid" onSubmit={saveUser}>
           <label>
@@ -294,21 +297,23 @@ export default function AdminUsersPage() {
           <label>
             <span>תפקיד</span>
             <select
-              value={form.role}
+              value={isAdmin ? form.role : 'employee'}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
+              disabled={!isAdmin}
             >
               <option value="employee">עובד</option>
-              <option value="work_manager">מנהל עבודה</option>
-              <option value="admin">מנהל מערכת</option>
+              {isAdmin && <option value="work_manager">מנהל עבודה</option>}
+              {isAdmin && <option value="admin">מנהל מערכת</option>}
             </select>
           </label>
 
           <label>
             <span>מחלקה</span>
             <select
-              required={form.role !== 'admin'}
+              required={isAdmin && form.role !== 'admin'}
               value={form.department_id}
               onChange={(e) => setForm({ ...form, department_id: e.target.value })}
+              disabled={!isAdmin}
             >
               <option value="">בחר מחלקה</option>
               {departments

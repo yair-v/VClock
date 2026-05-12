@@ -647,7 +647,11 @@ async function getVisibleUserIds(req) {
     if (!departmentId) return [req.user.id];
 
     const usersRes = await query(
-      `SELECT id FROM users WHERE id = $1 OR department_id = $2 ORDER BY full_name ASC`,
+      `SELECT id
+       FROM users
+       WHERE id = $1
+          OR (department_id = $2 AND COALESCE(role, 'employee') <> 'admin')
+       ORDER BY full_name ASC`,
       [req.user.id, departmentId]
     );
     return usersRes.rows.map((row) => row.id);
@@ -678,7 +682,12 @@ async function canAccessTargetUser(req, targetUserId) {
   if (!managerDepartmentId) return false;
 
   const result = await query(
-    `SELECT id FROM users WHERE id = $1 AND department_id = $2 LIMIT 1`,
+    `SELECT id
+     FROM users
+     WHERE id = $1
+       AND department_id = $2
+       AND COALESCE(role, 'employee') <> 'admin'
+     LIMIT 1`,
     [id, managerDepartmentId]
   );
   return Boolean(result.rows[0]);
@@ -1121,7 +1130,8 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
          requires_admin_approval,
          exception_reason,
          auto_closed,
-         record_time
+         record_time,
+         created_at
        FROM attendance_records
        WHERE user_id = $1
        ORDER BY record_time DESC`,
@@ -1139,7 +1149,8 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
       { header: 'Requires Admin Approval', key: 'requires_admin_approval', width: 20 },
       { header: 'Exception Reason', key: 'exception_reason', width: 35 },
       { header: 'Auto Closed', key: 'auto_closed', width: 12 },
-      { header: 'Record Time', key: 'record_time', width: 25 }
+      { header: 'Manual/Reported Time', key: 'record_time', width: 25 },
+      { header: 'Action Timestamp', key: 'created_at', width: 25 }
     ];
 
     result.rows.forEach((r) => ws.addRow(r));
@@ -1347,7 +1358,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       actionType: 'attendance',
       actionTitle: buildActionTitle(recordType, workDayType),
       details: [
-        `תאריך ושעה: ${resolvedRecordTime.sql}`,
+        `הזמן שהוזן ידנית: ${resolvedRecordTime.sql}`,
+        `חותמת זמן ביצוע הפעולה: ${new Date().toISOString()}`,
         `סוג יום: ${workDayType}`,
         note ? `הערה: ${note}` : '',
         validation.exceptionReason ? `חריגה: ${validation.exceptionReason}` : '',
@@ -1867,12 +1879,17 @@ app.put('/api/admin/reports/:id/approval', authRequired, managerRequired, async 
   }
 });
 
-app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
+app.delete('/api/admin/reports/:id', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
 
-    const recordRes = await query(`SELECT user_id FROM attendance_records WHERE id = $1`, [id]);
-    const record = recordRes.rows[0];
+    const record = await getScopedAttendanceRecord(req, id);
+    if (record === false) {
+      return res.status(403).json({ error: 'אין הרשאה למחוק דיווח מחוץ למחלקה שלך' });
+    }
+    if (!record) {
+      return res.status(404).json({ error: 'הרשומה לא נמצאה' });
+    }
 
     await query(
       `DELETE FROM attendance_records
@@ -1895,12 +1912,26 @@ app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (req, re
   }
 });
 
-app.post('/api/admin/reports/delete-many', authRequired, adminRequired, async (req, res) => {
+app.post('/api/admin/reports/delete-many', authRequired, managerRequired, async (req, res) => {
   try {
     const ids = Array.isArray(req.body.ids) ? req.body.ids.map(v => parseInt(v, 10)).filter(Boolean) : [];
 
     if (!ids.length) {
       return res.status(400).json({ error: 'לא נבחרו שורות למחיקה' });
+    }
+
+    const userIds = await getVisibleUserIds(req);
+    const scopeCondition = scopedAnyCondition(userIds, 'ar.user_id', 2);
+    const visible = await query(
+      `SELECT ar.id
+       FROM attendance_records ar
+       WHERE ar.id = ANY($1::int[])
+         AND ${scopeCondition}`,
+      userIds === null ? [ids] : [ids, userIds]
+    );
+
+    if (visible.rows.length !== ids.length) {
+      return res.status(403).json({ error: 'חלק מהדיווחים שנבחרו אינם שייכים למחלקה שלך' });
     }
 
     await query(
@@ -1924,7 +1955,7 @@ app.post('/api/admin/reports/delete-many', authRequired, adminRequired, async (r
   }
 });
 
-app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, async (req, res) => {
+app.post('/api/admin/reports/delete-filtered', authRequired, managerRequired, async (req, res) => {
   try {
     const {
       employeeCode = '',
@@ -1932,14 +1963,18 @@ app.post('/api/admin/reports/delete-filtered', authRequired, adminRequired, asyn
       toDate = ''
     } = req.body || {};
 
+    const userIds = await getVisibleUserIds(req);
+    const scopeCondition = scopedAnyCondition(userIds, 'ar.user_id', 4);
+
     await query(
       `DELETE FROM attendance_records ar
        USING users u
        WHERE u.id = ar.user_id
          AND ($1 = '' OR u.employee_code ILIKE '%' || $1 || '%' OR u.full_name ILIKE '%' || $1 || '%')
          AND ($2 = '' OR DATE(ar.record_time) >= $2::date)
-         AND ($3 = '' OR DATE(ar.record_time) <= $3::date)`,
-      [employeeCode, fromDate, toDate]
+         AND ($3 = '' OR DATE(ar.record_time) <= $3::date)
+         AND ${scopeCondition}`,
+      userIds === null ? [employeeCode, fromDate, toDate] : [employeeCode, fromDate, toDate, userIds]
     );
 
     await logAction({
@@ -2074,7 +2109,7 @@ app.get('/api/admin/users', authRequired, managerRequired, async (req, res) => {
   }
 });
 
-app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
+app.post('/api/admin/users', authRequired, managerRequired, async (req, res) => {
   try {
     const {
       employee_code,
@@ -2090,8 +2125,17 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       department_id
     } = req.body;
 
-    const nextRole = normalizeRole(role);
-    const nextDepartmentId = department_id ? parseInt(department_id, 10) : null;
+    let nextRole = normalizeRole(role);
+    let nextDepartmentId = department_id ? parseInt(department_id, 10) : null;
+
+    if (req.user.role === 'work_manager') {
+      const managerDepartmentId = await getRequesterDepartmentId(req);
+      if (!managerDepartmentId) {
+        return res.status(403).json({ error: 'לא ניתן להוסיף עובד ללא מחלקה למנהל העבודה' });
+      }
+      nextRole = 'employee';
+      nextDepartmentId = managerDepartmentId;
+    }
 
     if (!employee_code || !full_name || !password) {
       return res.status(400).json({ error: 'יש למלא קוד, שם וסיסמה' });
@@ -2160,7 +2204,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
   }
 });
 
-app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
+app.put('/api/admin/users/:id', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const {
@@ -2188,6 +2232,15 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
       return res.status(404).json({ error: 'משתמש לא נמצא' });
     }
 
+    if (req.user.role === 'work_manager') {
+      if (!(await canAccessTargetUser(req, id))) {
+        return res.status(403).json({ error: 'אין הרשאה לערוך עובד מחוץ למחלקה שלך' });
+      }
+      if (user.role === 'admin') {
+        return res.status(403).json({ error: 'אין הרשאה לערוך מנהל מערכת' });
+      }
+    }
+
     const nextEmployeeCode = typeof employee_code !== 'undefined' ? String(employee_code).trim() : user.employee_code;
     const nextName = typeof full_name !== 'undefined' ? String(full_name) : user.full_name;
     const nextRole = typeof role !== 'undefined' ? normalizeRole(role) : user.role;
@@ -2209,11 +2262,21 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
     const nextFridayStartAllowed = typeof friday_rotation_start_allowed !== 'undefined'
       ? (friday_rotation_start_allowed ? 1 : 0)
       : user.friday_rotation_start_allowed;
-    const nextDepartmentId = typeof department_id !== 'undefined'
+    let nextDepartmentId = typeof department_id !== 'undefined'
       ? (department_id ? parseInt(department_id, 10) : null)
       : user.department_id;
 
-    if (requiresDepartmentForRole(nextRole) && !nextDepartmentId) {
+    let finalRole = nextRole;
+    if (req.user.role === 'work_manager') {
+      const managerDepartmentId = await getRequesterDepartmentId(req);
+      if (!managerDepartmentId) {
+        return res.status(403).json({ error: 'לא ניתן לערוך ללא מחלקה למנהל העבודה' });
+      }
+      finalRole = user.role === 'work_manager' ? 'work_manager' : 'employee';
+      nextDepartmentId = managerDepartmentId;
+    }
+
+    if (requiresDepartmentForRole(finalRole) && !nextDepartmentId) {
       return res.status(400).json({ error: 'חובה לשייך עובד או מנהל עבודה למחלקה' });
     }
 
@@ -2259,7 +2322,7 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
         nextEmployeeCode,
         nextName,
         nextPasswordHash,
-        nextRole,
+        finalRole,
         nextActive,
         nextClosed,
         nextNfcUid,
@@ -2308,7 +2371,7 @@ app.post('/api/admin/users/:id/reopen-day', authRequired, managerRequired, async
   }
 });
 
-app.put('/api/admin/users/:id/work-schedule', authRequired, adminRequired, async (req, res) => {
+app.put('/api/admin/users/:id/work-schedule', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const workGroupId = req.body.work_group_id ? parseInt(req.body.work_group_id, 10) : null;
@@ -2323,6 +2386,10 @@ app.put('/api/admin/users/:id/work-schedule', authRequired, adminRequired, async
 
     if (!userRes.rows[0]) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+
+    if (!(await canAccessTargetUser(req, id))) {
+      return res.status(403).json({ error: 'אין הרשאה לעדכן עובד מחוץ למחלקה שלך' });
     }
 
     if (workGroupId) {
@@ -2352,7 +2419,7 @@ app.put('/api/admin/users/:id/work-schedule', authRequired, adminRequired, async
   }
 });
 
-app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res) => {
+app.delete('/api/admin/users/:id', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
 
@@ -2364,6 +2431,18 @@ app.delete('/api/admin/users/:id', authRequired, adminRequired, async (req, res)
 
     if (!user) {
       return res.status(404).json({ error: 'משתמש לא נמצא' });
+    }
+
+    if (req.user.role === 'work_manager') {
+      if (Number(req.user.id) === id) {
+        return res.status(400).json({ error: 'מנהל עבודה לא יכול למחוק את עצמו' });
+      }
+      if (!(await canAccessTargetUser(req, id))) {
+        return res.status(403).json({ error: 'אין הרשאה למחוק עובד מחוץ למחלקה שלך' });
+      }
+      if (user.role === 'admin') {
+        return res.status(403).json({ error: 'אין הרשאה למחוק מנהל מערכת' });
+      }
     }
 
     if (user.employee_code === 'admin') {
@@ -2572,7 +2651,7 @@ app.delete('/api/admin/holidays/:id', authRequired, adminRequired, async (req, r
   }
 });
 
-app.use('/api/admin/departments', authRequired, adminRequired, require('./routes/departments'));
+app.use('/api/admin/departments', authRequired, managerRequired, require('./routes/departments'));
 
 app.get('/api/admin/rules', authRequired, adminRequired, async (req, res) => {
   res.json([]);
@@ -2611,7 +2690,8 @@ app.get('/api/admin/export', authRequired, managerRequired, async (req, res) => 
          ar.exception_reason,
          ar.manager_note,
          ar.auto_closed,
-         ar.record_time
+         ar.record_time,
+         ar.created_at
        FROM attendance_records ar
        JOIN users u ON u.id = ar.user_id
        ORDER BY ar.record_time DESC`
@@ -2634,7 +2714,8 @@ app.get('/api/admin/export', authRequired, managerRequired, async (req, res) => 
       { header: 'Exception Reason', key: 'exception_reason', width: 35 },
       { header: 'Manager Note', key: 'manager_note', width: 35 },
       { header: 'Auto Closed', key: 'auto_closed', width: 12 },
-      { header: 'Record Time', key: 'record_time', width: 25 }
+      { header: 'Manual/Reported Time', key: 'record_time', width: 25 },
+      { header: 'Action Timestamp', key: 'created_at', width: 25 }
     ];
 
     result.rows.forEach((r) => ws.addRow(r));
