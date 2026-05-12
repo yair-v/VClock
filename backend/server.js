@@ -660,6 +660,49 @@ function scopedAnyCondition(userIds, columnName, paramIndex) {
   return userIds === null ? '1=1' : `${columnName} = ANY($${paramIndex}::int[])`;
 }
 
+
+async function getRequesterDepartmentId(req) {
+  if (!req.user?.id) return null;
+  const result = await query(`SELECT department_id FROM users WHERE id = $1 LIMIT 1`, [req.user.id]);
+  return result.rows[0]?.department_id || null;
+}
+
+async function canAccessTargetUser(req, targetUserId) {
+  const id = parseInt(targetUserId, 10);
+  if (!id) return false;
+  if (req.user?.role === 'admin') return true;
+  if (Number(req.user?.id) === id) return true;
+  if (req.user?.role !== 'work_manager') return false;
+
+  const managerDepartmentId = await getRequesterDepartmentId(req);
+  if (!managerDepartmentId) return false;
+
+  const result = await query(
+    `SELECT id FROM users WHERE id = $1 AND department_id = $2 LIMIT 1`,
+    [id, managerDepartmentId]
+  );
+  return Boolean(result.rows[0]);
+}
+
+async function getScopedAttendanceRecord(req, recordId) {
+  const result = await query(
+    `SELECT ar.*, u.department_id
+     FROM attendance_records ar
+     JOIN users u ON u.id = ar.user_id
+     WHERE ar.id = $1
+     LIMIT 1`,
+    [recordId]
+  );
+  const record = result.rows[0];
+  if (!record) return null;
+  if (await canAccessTargetUser(req, record.user_id)) return record;
+  return false;
+}
+
+function requiresDepartmentForRole(role) {
+  return role === 'employee' || role === 'work_manager';
+}
+
 async function getUserByLoginValue(loginValue) {
   const result = await query(
     `SELECT *
@@ -1551,7 +1594,7 @@ app.get('/api/admin/reports', authRequired, managerRequired, async (req, res) =>
 
 
 
-app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, res) => {
+app.post('/api/admin/reports/manual', authRequired, managerRequired, async (req, res) => {
   try {
     await ensureMonthlyLock();
 
@@ -1573,7 +1616,7 @@ app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, r
     }
 
     const userRes = await query(
-      `SELECT id, full_name, employee_code, is_active
+      `SELECT id, full_name, employee_code, is_active, department_id
        FROM users
        WHERE id = $1
        LIMIT 1`,
@@ -1587,6 +1630,10 @@ app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, r
 
     if (!user.is_active) {
       return res.status(400).json({ error: 'לא ניתן ליצור דיווח לעובד חסום' });
+    }
+
+    if (!(await canAccessTargetUser(req, user.id))) {
+      return res.status(403).json({ error: 'אין הרשאה לבצע פעולה על עובד מחוץ למחלקה שלך' });
     }
 
     const monthKey = getMonthKeyFromDateValue(record_time);
@@ -1662,6 +1709,8 @@ app.post('/api/admin/reports/manual', authRequired, adminRequired, async (req, r
 app.get('/api/admin/action-logs', authRequired, managerRequired, async (req, res) => {
   try {
     const { employeeCode = '', fromDate = '', toDate = '' } = req.query;
+    const userIds = await getVisibleUserIds(req);
+    const scopeCondition = scopedAnyCondition(userIds, 'al.user_id', 4);
 
     const result = await query(
       `SELECT
@@ -1677,8 +1726,9 @@ app.get('/api/admin/action-logs', authRequired, managerRequired, async (req, res
        WHERE ($1 = '' OR COALESCE(u.employee_code, '') ILIKE '%' || $1 || '%' OR COALESCE(u.full_name, '') ILIKE '%' || $1 || '%')
          AND ($2 = '' OR DATE(al.created_at) >= $2::date)
          AND ($3 = '' OR DATE(al.created_at) <= $3::date)
+         AND ${scopeCondition}
        ORDER BY al.created_at DESC, al.id DESC`,
-      [employeeCode, fromDate, toDate]
+      userIds === null ? [employeeCode, fromDate, toDate] : [employeeCode, fromDate, toDate, userIds]
     );
 
     res.json(result.rows);
@@ -1687,7 +1737,7 @@ app.get('/api/admin/action-logs', authRequired, managerRequired, async (req, res
   }
 });
 
-app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) => {
+app.put('/api/admin/reports/:id', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const {
@@ -1699,8 +1749,11 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
       record_time
     } = req.body;
 
-    const currentRes = await query(`SELECT * FROM attendance_records WHERE id = $1`, [id]);
-    const current = currentRes.rows[0];
+    const current = await getScopedAttendanceRecord(req, id);
+
+    if (current === false) {
+      return res.status(403).json({ error: 'אין הרשאה לערוך דיווח מחוץ למחלקה שלך' });
+    }
 
     if (!current) {
       return res.status(404).json({ error: 'הרשומה לא נמצאה' });
@@ -1769,13 +1822,21 @@ app.put('/api/admin/reports/:id', authRequired, adminRequired, async (req, res) 
   }
 });
 
-app.put('/api/admin/reports/:id/approval', authRequired, adminRequired, async (req, res) => {
+app.put('/api/admin/reports/:id/approval', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const approvalStatus = ['approved', 'rejected', 'pending'].includes(req.body.approval_status)
       ? req.body.approval_status
       : 'approved';
     const managerNote = String(req.body.manager_note || '').trim();
+
+    const current = await getScopedAttendanceRecord(req, id);
+    if (current === false) {
+      return res.status(403).json({ error: 'אין הרשאה לאשר דיווח מחוץ למחלקה שלך' });
+    }
+    if (!current) {
+      return res.status(404).json({ error: 'הרשומה לא נמצאה' });
+    }
 
     const updated = await query(
       `UPDATE attendance_records
@@ -2029,8 +2090,15 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
       department_id
     } = req.body;
 
+    const nextRole = normalizeRole(role);
+    const nextDepartmentId = department_id ? parseInt(department_id, 10) : null;
+
     if (!employee_code || !full_name || !password) {
       return res.status(400).json({ error: 'יש למלא קוד, שם וסיסמה' });
+    }
+
+    if (requiresDepartmentForRole(nextRole) && !nextDepartmentId) {
+      return res.status(400).json({ error: 'חובה לשייך עובד או מנהל עבודה למחלקה' });
     }
 
     const exists = await query(
@@ -2074,7 +2142,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
         String(employee_code),
         String(full_name),
         bcrypt.hashSync(String(password), 10),
-        normalizeRole(role),
+        nextRole,
         is_active ? 1 : 0,
         0,
         nextNfcUid,
@@ -2082,7 +2150,7 @@ app.post('/api/admin/users', authRequired, adminRequired, async (req, res) => {
         JSON.stringify(normalizeWeekDays(allowed_work_days)),
         friday_rotation_anchor_date || getNowInIsrael().dateString,
         friday_rotation_start_allowed ? 1 : 0,
-        department_id ? parseInt(department_id, 10) : null
+        nextDepartmentId
       ]
     );
 
@@ -2144,6 +2212,10 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
     const nextDepartmentId = typeof department_id !== 'undefined'
       ? (department_id ? parseInt(department_id, 10) : null)
       : user.department_id;
+
+    if (requiresDepartmentForRole(nextRole) && !nextDepartmentId) {
+      return res.status(400).json({ error: 'חובה לשייך עובד או מנהל עבודה למחלקה' });
+    }
 
     if (!nextEmployeeCode || !nextName) {
       return res.status(400).json({ error: 'יש למלא קוד עובד ושם מלא' });
@@ -2209,6 +2281,10 @@ app.put('/api/admin/users/:id', authRequired, adminRequired, async (req, res) =>
 app.post('/api/admin/users/:id/reopen-day', authRequired, managerRequired, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+
+    if (!(await canAccessTargetUser(req, id))) {
+      return res.status(403).json({ error: 'אין הרשאה לשחרר עובד מחוץ למחלקה שלך' });
+    }
 
     await query(
       `UPDATE users

@@ -11,7 +11,17 @@ const defaultForm = {
   nfcUid: ''
 };
 
+function getCurrentUserRole() {
+  try {
+    return JSON.parse(localStorage.getItem('vclock_user') || '{}')?.role || 'employee';
+  } catch {
+    return 'employee';
+  }
+}
+
 export default function AdminUsersPage() {
+  const currentRole = getCurrentUserRole();
+  const isAdmin = currentRole === 'admin';
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [form, setForm] = useState(defaultForm);
@@ -156,7 +166,7 @@ export default function AdminUsersPage() {
     <div className="card-page users-layout">
       <div className="table-card">
         <div className="section-title">ניהול עובדים והרשאות</div>
-        <div className="alert">מדרג הרשאות: עובד - דיווחים אישיים בלבד | מנהל עבודה - צפייה בדוחות וניהול יום עבודה | מנהל מערכת - ניהול מלא של משתמשים, הגדרות וחוקים.</div>
+        <div className="alert">מדרג הרשאות: עובד רואה רק את עצמו | מנהל עבודה רואה רק עובדים ודיווחים במחלקה שלו | מנהל מערכת רואה הכל. חובה לשייך כל עובד או מנהל עבודה למחלקה.</div>
 
         {message && <div className="alert success">{message}</div>}
         {error && <div className="alert error">{error}</div>}
@@ -187,27 +197,31 @@ export default function AdminUsersPage() {
                 <td>{user.day_closed ? 'כן' : 'לא'}</td>
                 <td>
                   <div className="action-buttons">
-                    <button
-                      className="secondary-btn small"
-                      onClick={() => startEdit(user)}
-                      type="button"
-                      disabled={loadingActionId === user.id}
-                    >
-                      ערוך
-                    </button>
+                    {isAdmin && (
+                      <>
+                        <button
+                          className="secondary-btn small"
+                          onClick={() => startEdit(user)}
+                          type="button"
+                          disabled={loadingActionId === user.id}
+                        >
+                          ערוך
+                        </button>
 
-                    <button
-                      className="secondary-btn small"
-                      onClick={() => toggleUser(user)}
-                      type="button"
-                      disabled={loadingActionId === user.id}
-                    >
-                      {loadingActionId === user.id
-                        ? 'טוען...'
-                        : user.is_active
-                          ? 'חסום'
-                          : 'הפעל'}
-                    </button>
+                        <button
+                          className="secondary-btn small"
+                          onClick={() => toggleUser(user)}
+                          type="button"
+                          disabled={loadingActionId === user.id}
+                        >
+                          {loadingActionId === user.id
+                            ? 'טוען...'
+                            : user.is_active
+                              ? 'חסום'
+                              : 'הפעל'}
+                        </button>
+                      </>
+                    )}
 
                     {Boolean(user.day_closed) && (
                       <button
@@ -220,14 +234,16 @@ export default function AdminUsersPage() {
                       </button>
                     )}
 
-                    <button
-                      className="danger-btn small"
-                      onClick={() => deleteUser(user)}
-                      type="button"
-                      disabled={loadingActionId === user.id}
-                    >
-                      מחק
-                    </button>
+                    {isAdmin && (
+                      <button
+                        className="danger-btn small"
+                        onClick={() => deleteUser(user)}
+                        type="button"
+                        disabled={loadingActionId === user.id}
+                      >
+                        מחק
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -242,6 +258,7 @@ export default function AdminUsersPage() {
         </table>
       </div>
 
+      {isAdmin && (
       <div className="table-card">
         <div className="section-title">
           {editingId ? 'עריכת עובד' : 'הוספת עובד'}
@@ -289,10 +306,11 @@ export default function AdminUsersPage() {
           <label>
             <span>מחלקה</span>
             <select
+              required={form.role !== 'admin'}
               value={form.department_id}
               onChange={(e) => setForm({ ...form, department_id: e.target.value })}
             >
-              <option value="">ללא מחלקה</option>
+              <option value="">בחר מחלקה</option>
               {departments
                 .filter((dep) => dep.is_active)
                 .map((dep) => (
@@ -343,6 +361,7 @@ export default function AdminUsersPage() {
           </div>
         </form>
       </div>
+      )}
     </div>
   );
 }

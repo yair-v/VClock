@@ -245,11 +245,12 @@ function Layout({ children }) {
                                 מחלקות
                               </MenuLink>
 
-                              <MenuLink to="/admin/users" onNavigate={closeMenu} className="menu-link sub-menu-link">
-                                משתמשים והרשאות
-                              </MenuLink>
                             </>
                           )}
+
+                          <MenuLink to="/admin/users" onNavigate={closeMenu} className="menu-link sub-menu-link">
+                            עובדים והרשאות
+                          </MenuLink>
 
                           <MenuLink to="/security" onNavigate={closeMenu} className="menu-link sub-menu-link">
                             אבטחה
@@ -297,7 +298,7 @@ export default function App() {
         <Route path="/security" element={<ProtectedRoute><TwoFactorSettingsPage /></ProtectedRoute>} />
         <Route path="/admin/dashboard" element={<ProtectedRoute minRole="work_manager"><AdminDashboardPage /></ProtectedRoute>} />
         <Route path="/admin/reports" element={<ProtectedRoute minRole="work_manager"><AdminReportsPage /></ProtectedRoute>} />
-        <Route path="/admin/users" element={<ProtectedRoute adminOnly><AdminUsersPage /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute minRole="work_manager"><AdminUsersPage /></ProtectedRoute>} />
         <Route path="/admin/monthly" element={<ProtectedRoute minRole="work_manager"><AdminMonthlyPage /></ProtectedRoute>} />
         <Route path="/admin/departments" element={<ProtectedRoute adminOnly><AdminDepartmentsPage /></ProtectedRoute>} />
         <Route path="/admin/settings" element={<ProtectedRoute adminOnly><AdminSettingsPage /></ProtectedRoute>} />
