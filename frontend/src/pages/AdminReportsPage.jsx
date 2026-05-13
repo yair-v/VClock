@@ -20,14 +20,8 @@ const workDayOptions = [
 
 function formatDateTime(value) {
   if (!value) return '-';
-  const text = String(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (match) {
-    const [, y, m, d, h, min, sec = '00'] = match;
-    return `${d}.${m}.${y}, ${h}:${min}:${sec}`;
-  }
   try {
-    return new Date(value).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' });
+    return new Date(value).toLocaleString('he-IL');
   } catch {
     return value;
   }

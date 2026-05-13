@@ -117,91 +117,38 @@ function parseClientDateTime(value) {
   if (!match) return null;
 
   const [, y, m, d, h, min, sec = '00'] = match;
-  const year = Number(y);
-  const month = Number(m);
-  const day = Number(d);
-  const hour = Number(h);
-  const minute = Number(min);
-  const second = Number(sec);
+  const date = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec));
+  if (Number.isNaN(date.getTime())) return null;
 
-  if (
-    !Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) ||
-    !Number.isInteger(hour) || !Number.isInteger(minute) || !Number.isInteger(second) ||
-    month < 1 || month > 12 || day < 1 || day > 31 ||
-    hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59
-  ) {
-    return null;
-  }
-
-  const pad = (n) => String(n).padStart(2, '0');
-  const dateString = `${year}-${pad(month)}-${pad(day)}`;
-  const timeString = `${pad(hour)}:${pad(minute)}:${pad(second)}`;
-
-  return {
-    year, month, day, hour, minute, second,
-    sql: `${dateString} ${timeString}`,
-    compare: `${dateString} ${timeString}`,
-    dateString,
-    timeString,
-    minutes: hour * 60 + minute,
-    // Used only for month-lock helper. The attendance time itself is kept as Israeli wall-clock time.
-    date: new Date(year, month - 1, day, hour, minute, second)
-  };
+  return date;
 }
 
 function resolveRecordDateTime(recordDateTime) {
   const now = new Date();
-  const requested = recordDateTime
-    ? parseClientDateTime(recordDateTime)
-    : parseClientDateTime(getNowInIsrael().dateTimeString.replace(' ', 'T'));
+  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : now;
 
   if (!requested) {
     return { error: 'תאריך או שעה אינם תקינים' };
   }
 
-  // datetime-local arrives without timezone. Treat it strictly as Israel local wall-clock time.
-  // Do not create a Date from it for validation, because on UTC servers it becomes a false future time.
-  const nowIsrael = getNowInIsrael();
-  const nowCompare = nowIsrael.dateTimeString;
+  const oldestAllowed = new Date(now.getTime() - 72 * 60 * 60 * 1000);
 
-  const oldestIsraelParts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(new Date(now.getTime() - 72 * 60 * 60 * 1000));
-
-  const oldestObj = Object.fromEntries(oldestIsraelParts.map((part) => [part.type, part.value]));
-  const oldestCompare = `${oldestObj.year}-${oldestObj.month}-${oldestObj.day} ${oldestObj.hour}:${oldestObj.minute}:${oldestObj.second}`;
-
-  if (requested.compare < oldestCompare) {
+  if (requested.getTime() < oldestAllowed.getTime()) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  // Allow a small browser/seconds drift, but compare after formatting the server time in Israel time.
-  const maxIsraelParts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(new Date(now.getTime() + 10 * 60 * 1000));
-
-  const maxObj = Object.fromEntries(maxIsraelParts.map((part) => [part.type, part.value]));
-  const maxCompare = `${maxObj.year}-${maxObj.month}-${maxObj.day} ${maxObj.hour}:${maxObj.minute}:${maxObj.second}`;
-
-  if (requested.compare > maxCompare) {
+  // allow small timezone / browser drift so closing a shift at current time will not fail
+  if (requested.getTime() > now.getTime() + 10 * 60 * 1000) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
-  return requested;
+  return {
+    date: requested,
+    sql: formatSqlDateTimeLocal(requested),
+    dateString: formatSqlDateTimeLocal(requested).slice(0, 10),
+    timeString: formatSqlDateTimeLocal(requested).slice(11, 19),
+    minutes: requested.getHours() * 60 + requested.getMinutes()
+  };
 }
 
 function getDateStringFromValue(value) {
@@ -1111,12 +1058,10 @@ app.get('/api/my-status', authRequired, async (req, res) => {
     }
 
     const lastRes = await query(
-      `SELECT *,
-         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
-         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
+      `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY record_time DESC, id DESC
+       ORDER BY attendance.record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -1157,14 +1102,12 @@ app.get('/api/my-records', authRequired, async (req, res) => {
     const { start, end } = getWorkdayWindow();
 
     const result = await query(
-      `SELECT *,
-         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
-         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
+      `SELECT *
        FROM attendance_records
        WHERE user_id = $1
          AND record_time >= $2::timestamp
          AND record_time < $3::timestamp
-       ORDER BY record_time DESC, id DESC`,
+       ORDER BY attendance.record_time DESC, id DESC`,
       [req.user.id, formatSqlDateTimeLocal(start), formatSqlDateTimeLocal(end)]
     );
 
@@ -1192,7 +1135,7 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
          created_at
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY record_time DESC`,
+       ORDER BY attendance.record_time DESC`,
       [req.user.id]
     );
 
@@ -1274,12 +1217,10 @@ app.post('/api/attendance', authRequired, async (req, res) => {
     }
 
     const lastRes = await query(
-      `SELECT *,
-         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
-         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
+      `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY record_time DESC, id DESC
+       ORDER BY attendance.record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -1472,12 +1413,10 @@ app.post('/api/nfc/attendance', async (req, res) => {
     const todayDate = getNowInIsrael().dateString;
 
     const lastRes = await query(
-      `SELECT *,
-         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
-         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
+      `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY record_time DESC, id DESC
+       ORDER BY attendance.record_time DESC, id DESC
        LIMIT 1`,
       [user.id]
     );
@@ -1638,8 +1577,6 @@ app.get('/api/admin/reports', authRequired, managerRequired, async (req, res) =>
     const result = await query(
       `SELECT
          ar.*,
-         TO_CHAR(ar.record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
-         TO_CHAR(ar.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
          u.employee_code,
          u.full_name,
          u.department_id

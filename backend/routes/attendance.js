@@ -47,7 +47,7 @@ router.get('/status', authenticateToken, async (req, res) => {
     const lastRecord = await get(
       `SELECT * FROM attendance_records
        WHERE user_id = ?
-       ORDER BY record_time DESC, id DESC
+       ORDER BY attendance.record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -78,7 +78,7 @@ router.post('/record', authenticateToken, async (req, res) => {
     const lastRecord = await get(
       `SELECT * FROM attendance_records
        WHERE user_id = ?
-       ORDER BY record_time DESC, id DESC
+       ORDER BY attendance.record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
