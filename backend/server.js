@@ -117,80 +117,37 @@ function parseClientDateTime(value) {
   if (!match) return null;
 
   const [, y, m, d, h, min, sec = '00'] = match;
-  const parts = {
-    year: Number(y),
-    month: Number(m),
-    day: Number(d),
-    hour: Number(h),
-    minute: Number(min),
-    second: Number(sec)
-  };
+  const date = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec));
+  if (Number.isNaN(date.getTime())) return null;
 
-  if (
-    !parts.year ||
-    parts.month < 1 || parts.month > 12 ||
-    parts.day < 1 || parts.day > 31 ||
-    parts.hour < 0 || parts.hour > 23 ||
-    parts.minute < 0 || parts.minute > 59 ||
-    parts.second < 0 || parts.second > 59
-  ) {
-    return null;
-  }
-
-  const comparableDate = new Date(Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second
-  ));
-
-  if (Number.isNaN(comparableDate.getTime())) return null;
-
-  return {
-    ...parts,
-    comparableDate,
-    sql: `${y}-${m}-${d} ${h}:${min}:${sec}`,
-    dateString: `${y}-${m}-${d}`,
-    timeString: `${h}:${min}:${sec}`,
-    minutes: parts.hour * 60 + parts.minute
-  };
+  return date;
 }
 
 function resolveRecordDateTime(recordDateTime) {
-  const nowIsrael = getNowInIsrael();
-  const nowLocal = parseClientDateTime(nowIsrael.dateTimeString);
-  const requested = recordDateTime
-    ? parseClientDateTime(recordDateTime)
-    : parseClientDateTime(nowIsrael.dateTimeString);
+  const now = new Date();
+  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : now;
 
-  if (!requested || !nowLocal) {
+  if (!requested) {
     return { error: 'תאריך או שעה אינם תקינים' };
   }
 
-  const nowMs = nowLocal.comparableDate.getTime();
-  const requestedMs = requested.comparableDate.getTime();
-  const oldestAllowedMs = nowMs - 72 * 60 * 60 * 1000;
-  const futureToleranceMs = 10 * 60 * 1000;
+  const oldestAllowed = new Date(now.getTime() - 72 * 60 * 60 * 1000);
 
-  if (requestedMs < oldestAllowedMs) {
+  if (requested.getTime() < oldestAllowed.getTime()) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  // Compare Israel-local time as Israel-local time. Do not compare a browser local datetime
-  // against the server's UTC clock, because that makes valid Israel times look like future times.
-  if (requestedMs > nowMs + futureToleranceMs) {
+  // allow small timezone / browser drift so closing a shift at current time will not fail
+  if (requested.getTime() > now.getTime() + 10 * 60 * 1000) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
   return {
-    date: requested.sql,
-    comparableDate: requested.comparableDate,
-    sql: requested.sql,
-    dateString: requested.dateString,
-    timeString: requested.timeString,
-    minutes: requested.minutes
+    date: requested,
+    sql: formatSqlDateTimeLocal(requested),
+    dateString: formatSqlDateTimeLocal(requested).slice(0, 10),
+    timeString: formatSqlDateTimeLocal(requested).slice(11, 19),
+    minutes: requested.getHours() * 60 + requested.getMinutes()
   };
 }
 
@@ -1248,7 +1205,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       return res.status(400).json({ error: resolvedRecordTime.error });
     }
 
-    const monthKey = resolvedRecordTime.dateString.slice(0, 7);
+    const monthKey = getMonthKeyFromDateValue(resolvedRecordTime.date);
     if (await isMonthLocked(monthKey)) {
       return res.status(403).json({ error: 'החודש נעול לדיווח. יש לפנות למנהל.' });
     }

@@ -1,4 +1,16 @@
 import { useEffect, useState } from 'react';
+
+function formatLocalDateTime(value) {
+  if (!value) return '-';
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) {
+    const [, y, m, d, h, min, sec = '00'] = match;
+    return `${Number(d)}.${Number(m)}.${y}, ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
+  try { return new Date(value).toLocaleString('he-IL'); } catch { return value; }
+}
+
 import { apiGet } from '../services/api';
 
 export default function MyReportsPage() {
@@ -47,8 +59,8 @@ export default function MyReportsPage() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
-                <td>{new Date(row.record_time).toLocaleString('he-IL')}</td>
-                <td>{row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '-'}</td>
+                <td>{formatLocalDateTime(row.record_time)}</td>
+                <td>{row.created_at ? formatLocalDateTime(row.created_at) : '-'}</td>
                 <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
                 <td>{row.work_day_type}</td>
                 <td>{row.note || '-'}</td>
