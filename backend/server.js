@@ -101,6 +101,40 @@ function getWorkdayWindow(now = new Date()) {
   return { start, end };
 }
 
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+function buildIsraelWallDateTime(parts) {
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  const hour = Number(parts.hour || 0);
+  const minute = Number(parts.minute || 0);
+  const second = Number(parts.second || 0);
+
+  if (![year, month, day, hour, minute, second].every(Number.isFinite)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
+
+  const sql = `${year}-${pad2(month)}-${pad2(day)} ${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    sql,
+    dateString: sql.slice(0, 10),
+    timeString: sql.slice(11, 19),
+    minutes: hour * 60 + minute,
+    // Wall-clock milliseconds only for comparing Israel local time to Israel local time.
+    // This avoids UTC/server-timezone shifts when the server runs outside Israel timezone.
+    wallMs: Date.UTC(year, month - 1, day, hour, minute, second)
+  };
+}
+
 function formatSqlDateTimeLocal(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -113,41 +147,53 @@ function formatSqlDateTimeLocal(date) {
 
 function parseClientDateTime(value) {
   const text = String(value || '').trim();
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (!match) return null;
 
-  const [, y, m, d, h, min, sec = '00'] = match;
-  const date = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec));
-  if (Number.isNaN(date.getTime())) return null;
+  // Preferred format from <input type="datetime-local">
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (match) {
+    const [, year, month, day, hour, minute, second = '00'] = match;
+    return buildIsraelWallDateTime({ year, month, day, hour, minute, second });
+  }
 
-  return date;
+  // Defensive support for Israeli display format, if a browser/page sends it as text.
+  match = text.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (match) {
+    const [, day, month, year, hour, minute, second = '00'] = match;
+    return buildIsraelWallDateTime({ year, month, day, hour, minute, second });
+  }
+
+  return null;
 }
 
 function resolveRecordDateTime(recordDateTime) {
-  const now = new Date();
-  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : now;
+  const nowIsrael = getNowInIsrael();
+  const requested = recordDateTime
+    ? parseClientDateTime(recordDateTime)
+    : buildIsraelWallDateTime(nowIsrael);
 
   if (!requested) {
     return { error: 'תאריך או שעה אינם תקינים' };
   }
 
-  const oldestAllowed = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+  const nowWall = buildIsraelWallDateTime(nowIsrael);
+  const oldestAllowedWallMs = nowWall.wallMs - 72 * 60 * 60 * 1000;
+  const latestAllowedWallMs = nowWall.wallMs + 10 * 60 * 1000;
 
-  if (requested.getTime() < oldestAllowed.getTime()) {
+  if (requested.wallMs < oldestAllowedWallMs) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  // allow small timezone / browser drift so closing a shift at current time will not fail
-  if (requested.getTime() > now.getTime() + 10 * 60 * 1000) {
+  if (requested.wallMs > latestAllowedWallMs) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
   return {
-    date: requested,
-    sql: formatSqlDateTimeLocal(requested),
-    dateString: formatSqlDateTimeLocal(requested).slice(0, 10),
-    timeString: formatSqlDateTimeLocal(requested).slice(11, 19),
-    minutes: requested.getHours() * 60 + requested.getMinutes()
+    // Keep this for existing helpers that expect a Date-like value, but do not use it for Israel wall-clock validation.
+    date: new Date(requested.wallMs),
+    sql: requested.sql,
+    dateString: requested.dateString,
+    timeString: requested.timeString,
+    minutes: requested.minutes
   };
 }
 
