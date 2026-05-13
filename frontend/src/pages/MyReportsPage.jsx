@@ -1,55 +1,21 @@
 import { useEffect, useState } from 'react';
+import { apiGet } from '../services/api';
 
-function formatLocalDateTime(value) {
+function formatDateTime(value) {
   if (!value) return '-';
-
-  const text = String(value).trim();
-
-  // UTC אמיתי מהשרת - מציגים לפי שעון ישראל.
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(text)) {
-    const date = new Date(text);
-    if (!Number.isNaN(date.getTime())) {
-      return new Intl.DateTimeFormat('he-IL', {
-        timeZone: 'Asia/Jerusalem',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).format(date);
-    }
-  }
-
-  // זמן ידני מקומי ללא timezone - מציגים כמו שהוא.
+  const text = String(value);
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (match) {
     const [, y, m, d, h, min, sec = '00'] = match;
-    return `${Number(d)}.${Number(m)}.${y}, ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    return `${d}.${m}.${y}, ${h}:${min}:${sec}`;
   }
-
   try {
-    const date = new Date(value);
-    if (!Number.isNaN(date.getTime())) {
-      return new Intl.DateTimeFormat('he-IL', {
-        timeZone: 'Asia/Jerusalem',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).format(date);
-    }
-    return value;
+    return new Date(value).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' });
   } catch {
     return value;
   }
 }
 
-import { apiGet } from '../services/api';
 
 export default function MyReportsPage() {
   const [rows, setRows] = useState([]);
@@ -97,8 +63,8 @@ export default function MyReportsPage() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
-                <td>{formatLocalDateTime(row.record_time)}</td>
-                <td>{row.created_at ? formatLocalDateTime(row.created_at) : '-'}</td>
+                <td>{formatDateTime(row.record_time)}</td>
+                <td>{formatDateTime(row.created_at)}</td>
                 <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
                 <td>{row.work_day_type}</td>
                 <td>{row.note || '-'}</td>

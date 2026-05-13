@@ -1,16 +1,4 @@
 import { useEffect, useState } from 'react';
-
-function formatLocalDateTime(value) {
-  if (!value) return '-';
-  const text = String(value).trim();
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (match) {
-    const [, y, m, d, h, min, sec = '00'] = match;
-    return `${Number(d)}.${Number(m)}.${y}, ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  }
-  try { return new Date(value).toLocaleString('he-IL'); } catch { return value; }
-}
-
 import { apiGet } from '../services/api';
 
 function currentMonthValue() {
@@ -84,8 +72,8 @@ export default function AdminMonthlyPage() {
                 <td>{formatWorkDate(row.work_date)}</td>
                 <td>{row.full_name}</td>
                 <td>{row.employee_code}</td>
-                <td>{row.first_in ? formatLocalDateTime(row.first_in).split(', ')[1] : '-'}</td>
-                <td>{row.last_out ? formatLocalDateTime(row.last_out).split(', ')[1] : '-'}</td>
+                <td>{row.first_in ? new Date(row.first_in).toLocaleTimeString('he-IL') : '-'}</td>
+                <td>{row.last_out ? new Date(row.last_out).toLocaleTimeString('he-IL') : '-'}</td>
                 <td>{row.totalHours || '-'}</td>
                 <td>{row.breakfast_count || 0} / ₪{formatMoney(row.breakfast_total)}</td>
                 <td>{row.lunch_count || 0} / ₪{formatMoney(row.lunch_total)}</td>

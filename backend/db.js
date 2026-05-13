@@ -1,11 +1,5 @@
-const { Pool, types } = require('pg');
+const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
-
-// חשוב: PostgreSQL TIMESTAMP ללא timezone מייצג אצלנו זמן מקומי בישראל.
-// ברירת המחדל של pg ממירה אותו ל-Date לפי timezone של השרת וגורמת לקפיצות של שעות.
-// לכן מחזירים אותו כמחרוזת נקייה ומציגים/שומרים אותו ללא המרת timezone כפולה.
-types.setTypeParser(1114, (value) => value); // timestamp without time zone
-types.setTypeParser(1082, (value) => value); // date
 
 const connectionString = process.env.DATABASE_URL;
 

@@ -101,40 +101,6 @@ function getWorkdayWindow(now = new Date()) {
   return { start, end };
 }
 
-function pad2(value) {
-  return String(value).padStart(2, '0');
-}
-
-function buildIsraelWallDateTime(parts) {
-  const year = Number(parts.year);
-  const month = Number(parts.month);
-  const day = Number(parts.day);
-  const hour = Number(parts.hour || 0);
-  const minute = Number(parts.minute || 0);
-  const second = Number(parts.second || 0);
-
-  if (![year, month, day, hour, minute, second].every(Number.isFinite)) return null;
-  if (month < 1 || month > 12 || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
-
-  const sql = `${year}-${pad2(month)}-${pad2(day)} ${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
-
-  return {
-    year,
-    month,
-    day,
-    hour,
-    minute,
-    second,
-    sql,
-    dateString: sql.slice(0, 10),
-    timeString: sql.slice(11, 19),
-    minutes: hour * 60 + minute,
-    // Wall-clock milliseconds only for comparing Israel local time to Israel local time.
-    // This avoids UTC/server-timezone shifts when the server runs outside Israel timezone.
-    wallMs: Date.UTC(year, month - 1, day, hour, minute, second)
-  };
-}
-
 function formatSqlDateTimeLocal(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -147,54 +113,95 @@ function formatSqlDateTimeLocal(date) {
 
 function parseClientDateTime(value) {
   const text = String(value || '').trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
 
-  // Preferred format from <input type="datetime-local">
-  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (match) {
-    const [, year, month, day, hour, minute, second = '00'] = match;
-    return buildIsraelWallDateTime({ year, month, day, hour, minute, second });
+  const [, y, m, d, h, min, sec = '00'] = match;
+  const year = Number(y);
+  const month = Number(m);
+  const day = Number(d);
+  const hour = Number(h);
+  const minute = Number(min);
+  const second = Number(sec);
+
+  if (
+    !Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day) ||
+    !Number.isInteger(hour) || !Number.isInteger(minute) || !Number.isInteger(second) ||
+    month < 1 || month > 12 || day < 1 || day > 31 ||
+    hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59
+  ) {
+    return null;
   }
 
-  // Defensive support for Israeli display format, if a browser/page sends it as text.
-  match = text.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (match) {
-    const [, day, month, year, hour, minute, second = '00'] = match;
-    return buildIsraelWallDateTime({ year, month, day, hour, minute, second });
-  }
+  const pad = (n) => String(n).padStart(2, '0');
+  const dateString = `${year}-${pad(month)}-${pad(day)}`;
+  const timeString = `${pad(hour)}:${pad(minute)}:${pad(second)}`;
 
-  return null;
+  return {
+    year, month, day, hour, minute, second,
+    sql: `${dateString} ${timeString}`,
+    compare: `${dateString} ${timeString}`,
+    dateString,
+    timeString,
+    minutes: hour * 60 + minute,
+    // Used only for month-lock helper. The attendance time itself is kept as Israeli wall-clock time.
+    date: new Date(year, month - 1, day, hour, minute, second)
+  };
 }
 
 function resolveRecordDateTime(recordDateTime) {
-  const nowIsrael = getNowInIsrael();
+  const now = new Date();
   const requested = recordDateTime
     ? parseClientDateTime(recordDateTime)
-    : buildIsraelWallDateTime(nowIsrael);
+    : parseClientDateTime(getNowInIsrael().dateTimeString.replace(' ', 'T'));
 
   if (!requested) {
     return { error: 'תאריך או שעה אינם תקינים' };
   }
 
-  const nowWall = buildIsraelWallDateTime(nowIsrael);
-  const oldestAllowedWallMs = nowWall.wallMs - 72 * 60 * 60 * 1000;
-  const latestAllowedWallMs = nowWall.wallMs + 10 * 60 * 1000;
+  // datetime-local arrives without timezone. Treat it strictly as Israel local wall-clock time.
+  // Do not create a Date from it for validation, because on UTC servers it becomes a false future time.
+  const nowIsrael = getNowInIsrael();
+  const nowCompare = nowIsrael.dateTimeString;
 
-  if (requested.wallMs < oldestAllowedWallMs) {
+  const oldestIsraelParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date(now.getTime() - 72 * 60 * 60 * 1000));
+
+  const oldestObj = Object.fromEntries(oldestIsraelParts.map((part) => [part.type, part.value]));
+  const oldestCompare = `${oldestObj.year}-${oldestObj.month}-${oldestObj.day} ${oldestObj.hour}:${oldestObj.minute}:${oldestObj.second}`;
+
+  if (requested.compare < oldestCompare) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  if (requested.wallMs > latestAllowedWallMs) {
+  // Allow a small browser/seconds drift, but compare after formatting the server time in Israel time.
+  const maxIsraelParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: APP_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(new Date(now.getTime() + 10 * 60 * 1000));
+
+  const maxObj = Object.fromEntries(maxIsraelParts.map((part) => [part.type, part.value]));
+  const maxCompare = `${maxObj.year}-${maxObj.month}-${maxObj.day} ${maxObj.hour}:${maxObj.minute}:${maxObj.second}`;
+
+  if (requested.compare > maxCompare) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
-  return {
-    // Keep this for existing helpers that expect a Date-like value, but do not use it for Israel wall-clock validation.
-    date: new Date(requested.wallMs),
-    sql: requested.sql,
-    dateString: requested.dateString,
-    timeString: requested.timeString,
-    minutes: requested.minutes
-  };
+  return requested;
 }
 
 function getDateStringFromValue(value) {
@@ -1104,7 +1111,9 @@ app.get('/api/my-status', authRequired, async (req, res) => {
     }
 
     const lastRes = await query(
-      `SELECT *
+      `SELECT *,
+         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
+         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
        FROM attendance_records
        WHERE user_id = $1
        ORDER BY record_time DESC, id DESC
@@ -1148,7 +1157,9 @@ app.get('/api/my-records', authRequired, async (req, res) => {
     const { start, end } = getWorkdayWindow();
 
     const result = await query(
-      `SELECT *
+      `SELECT *,
+         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
+         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
        FROM attendance_records
        WHERE user_id = $1
          AND record_time >= $2::timestamp
@@ -1263,7 +1274,9 @@ app.post('/api/attendance', authRequired, async (req, res) => {
     }
 
     const lastRes = await query(
-      `SELECT *
+      `SELECT *,
+         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
+         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
        FROM attendance_records
        WHERE user_id = $1
        ORDER BY record_time DESC, id DESC
@@ -1459,7 +1472,9 @@ app.post('/api/nfc/attendance', async (req, res) => {
     const todayDate = getNowInIsrael().dateString;
 
     const lastRes = await query(
-      `SELECT *
+      `SELECT *,
+         TO_CHAR(record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
+         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at
        FROM attendance_records
        WHERE user_id = $1
        ORDER BY record_time DESC, id DESC
@@ -1623,6 +1638,8 @@ app.get('/api/admin/reports', authRequired, managerRequired, async (req, res) =>
     const result = await query(
       `SELECT
          ar.*,
+         TO_CHAR(ar.record_time, 'YYYY-MM-DD HH24:MI:SS') AS record_time,
+         TO_CHAR(ar.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jerusalem', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
          u.employee_code,
          u.full_name,
          u.department_id

@@ -18,56 +18,16 @@ const workDayOptions = [
   'אחר'
 ];
 
-function pad2(value) {
-  return String(value).padStart(2, '0');
-}
-
 function formatDateTime(value) {
   if (!value) return '-';
-
-  const text = String(value).trim();
-
-  // ערך שמסתיים ב-Z הוא UTC אמיתי מהשרת.
-  // במקרה כזה חייבים להציג אותו לפי שעון ישראל, אחרת רואים 3 שעות אחורה.
-  if (/Z$|[+-]\d{2}:?\d{2}$/.test(text)) {
-    const date = new Date(text);
-    if (!Number.isNaN(date.getTime())) {
-      return new Intl.DateTimeFormat('he-IL', {
-        timeZone: 'Asia/Jerusalem',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).format(date);
-    }
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) {
+    const [, y, m, d, h, min, sec = '00'] = match;
+    return `${d}.${m}.${y}, ${h}:${min}:${sec}`;
   }
-
-  // ערך ללא timezone הוא זמן מקומי שנבחר ידנית: YYYY-MM-DD HH:mm:ss / YYYY-MM-DDTHH:mm:ss
-  // אותו מציגים כמו שהוא, בלי new Date ובלי המרות.
-  const localMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (localMatch) {
-    const [, y, m, d, h, min, sec = '00'] = localMatch;
-    return `${Number(d)}.${Number(m)}.${y}, ${pad2(h)}:${pad2(min)}:${pad2(sec)}`;
-  }
-
   try {
-    const date = new Date(value);
-    if (!Number.isNaN(date.getTime())) {
-      return new Intl.DateTimeFormat('he-IL', {
-        timeZone: 'Asia/Jerusalem',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).format(date);
-    }
-    return value;
+    return new Date(value).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem' });
   } catch {
     return value;
   }
@@ -75,16 +35,7 @@ function formatDateTime(value) {
 
 function formatForDateTimeLocal(value) {
   if (!value) return '';
-
-  const text = String(value).trim();
-  const localMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  if (localMatch) {
-    const [, y, m, d, h, min] = localMatch;
-    return `${y}-${m}-${d}T${h}:${min}`;
-  }
-
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
   const offset = d.getTimezoneOffset();
   const local = new Date(d.getTime() - offset * 60000);
   return local.toISOString().slice(0, 16);
@@ -199,7 +150,9 @@ export default function AdminReportsPage() {
         manager_note: editForm.manager_note,
         approval_status: editForm.approval_status,
         record_type: editForm.record_type,
-        record_time: editForm.record_time || null
+        record_time: editForm.record_time
+          ? new Date(editForm.record_time).toISOString()
+          : null
       });
 
       setMessage('הדיווח עודכן בהצלחה');
@@ -237,7 +190,9 @@ export default function AdminReportsPage() {
         work_day_type: newReport.work_day_type,
         note: newReport.note,
         manager_note: newReport.manager_note,
-        record_time: newReport.record_time || null
+        record_time: newReport.record_time
+          ? new Date(newReport.record_time).toISOString()
+          : null
       });
 
       setMessage('הדיווח נוצר בהצלחה');
