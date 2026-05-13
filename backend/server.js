@@ -117,37 +117,90 @@ function parseClientDateTime(value) {
   if (!match) return null;
 
   const [, y, m, d, h, min, sec = '00'] = match;
-  const date = new Date(Number(y), Number(m) - 1, Number(d), Number(h), Number(min), Number(sec));
-  if (Number.isNaN(date.getTime())) return null;
+  const year = Number(y);
+  const month = Number(m);
+  const day = Number(d);
+  const hour = Number(h);
+  const minute = Number(min);
+  const second = Number(sec);
 
-  return date;
+  if (
+    !year || month < 1 || month > 12 || day < 1 || day > 31 ||
+    hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59
+  ) {
+    return null;
+  }
+
+  const sql = `${y}-${m}-${d} ${h}:${min}:${String(second).padStart(2, '0')}`;
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    sql,
+    dateString: `${y}-${m}-${d}`,
+    timeString: `${h}:${min}:${String(second).padStart(2, '0')}`,
+    minutes: hour * 60 + minute
+  };
+}
+
+function israelWallClockToMs(parts) {
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0);
+}
+
+function subtractHoursFromIsraelNow(hours) {
+  const nowIsrael = getNowInIsrael();
+  const utcLike = new Date(Date.UTC(
+    nowIsrael.year,
+    nowIsrael.month - 1,
+    nowIsrael.day,
+    nowIsrael.hour,
+    nowIsrael.minute,
+    nowIsrael.second
+  ));
+  utcLike.setUTCHours(utcLike.getUTCHours() - hours);
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    year: utcLike.getUTCFullYear(),
+    month: utcLike.getUTCMonth() + 1,
+    day: utcLike.getUTCDate(),
+    hour: utcLike.getUTCHours(),
+    minute: utcLike.getUTCMinutes(),
+    second: utcLike.getUTCSeconds(),
+    sql: `${utcLike.getUTCFullYear()}-${pad(utcLike.getUTCMonth() + 1)}-${pad(utcLike.getUTCDate())} ${pad(utcLike.getUTCHours())}:${pad(utcLike.getUTCMinutes())}:${pad(utcLike.getUTCSeconds())}`
+  };
 }
 
 function resolveRecordDateTime(recordDateTime) {
-  const now = new Date();
-  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : now;
+  const nowIsrael = getNowInIsrael();
+  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : parseClientDateTime(nowIsrael.dateTimeString);
 
   if (!requested) {
     return { error: 'תאריך או שעה אינם תקינים' };
   }
 
-  const oldestAllowed = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+  const oldestAllowed = subtractHoursFromIsraelNow(72);
+  const requestedMs = israelWallClockToMs(requested);
+  const nowMs = israelWallClockToMs(nowIsrael);
+  const oldestMs = israelWallClockToMs(oldestAllowed);
 
-  if (requested.getTime() < oldestAllowed.getTime()) {
+  if (requestedMs < oldestMs) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  // allow small timezone / browser drift so closing a shift at current time will not fail
-  if (requested.getTime() > now.getTime() + 10 * 60 * 1000) {
+  // השוואה לפי שעון ישראל בלבד. לא משתמשים ב-UTC של השרת כדי למנוע קפיצות של 2/3 שעות.
+  if (requestedMs > nowMs + 10 * 60 * 1000) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
   return {
-    date: requested,
-    sql: formatSqlDateTimeLocal(requested),
-    dateString: formatSqlDateTimeLocal(requested).slice(0, 10),
-    timeString: formatSqlDateTimeLocal(requested).slice(11, 19),
-    minutes: requested.getHours() * 60 + requested.getMinutes()
+    date: new Date(Date.UTC(requested.year, requested.month - 1, requested.day, requested.hour, requested.minute, requested.second)),
+    sql: requested.sql,
+    dateString: requested.dateString,
+    timeString: requested.timeString,
+    minutes: requested.minutes
   };
 }
 
@@ -1061,7 +1114,7 @@ app.get('/api/my-status', authRequired, async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance_records.record_time DESC, id DESC
+       ORDER BY record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -1107,7 +1160,7 @@ app.get('/api/my-records', authRequired, async (req, res) => {
        WHERE user_id = $1
          AND record_time >= $2::timestamp
          AND record_time < $3::timestamp
-       ORDER BY attendance_records.record_time DESC, id DESC`,
+       ORDER BY record_time DESC, id DESC`,
       [req.user.id, formatSqlDateTimeLocal(start), formatSqlDateTimeLocal(end)]
     );
 
@@ -1135,7 +1188,7 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
          created_at
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance_records.record_time DESC`,
+       ORDER BY record_time DESC`,
       [req.user.id]
     );
 
@@ -1220,7 +1273,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance_records.record_time DESC, id DESC
+       ORDER BY record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -1416,7 +1469,7 @@ app.post('/api/nfc/attendance', async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance_records.record_time DESC, id DESC
+       ORDER BY record_time DESC, id DESC
        LIMIT 1`,
       [user.id]
     );
@@ -1540,25 +1593,69 @@ app.get('/api/admin/dashboard', authRequired, managerRequired, async (req, res) 
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
+    const today = String(req.query.date || '').trim() || getNowInIsrael().dateString;
     const userIds = await getVisibleUserIds(req);
-    const selectedDays = Math.min(Math.max(parseInt(req.query.days || '14', 10), 1), 60);
-    const scopeCondition = scopedAnyCondition(userIds, 'ar.user_id', 2);
-    const params = userIds === null ? [selectedDays] : [selectedDays, userIds];
+    const scopeCondition = scopedAnyCondition(userIds, 'u.id', 2);
+    const params = userIds === null ? [today] : [today, userIds];
 
     const result = await query(
-      `SELECT
-         DATE(ar.record_time) AS day,
-         COUNT(*) FILTER (WHERE ar.record_type = 'in')::int AS in_count,
-         COUNT(*) FILTER (WHERE ar.record_type = 'out')::int AS out_count
-       FROM attendance_records ar
-       WHERE DATE(ar.record_time) >= (CURRENT_DATE - (($1::int - 1) * INTERVAL '1 day'))
+      `WITH last_today AS (
+         SELECT DISTINCT ON (ar.user_id)
+           ar.user_id,
+           ar.record_type,
+           ar.record_time,
+           ar.created_at,
+           ar.work_day_type,
+           ar.approval_status
+         FROM attendance_records ar
+         WHERE DATE(ar.record_time) = $1::date
+         ORDER BY ar.user_id, ar.record_time DESC, ar.id DESC
+       )
+       SELECT
+         u.id,
+         u.employee_code,
+         u.full_name,
+         u.role,
+         u.department_id,
+         d.name AS department_name,
+         lt.record_type,
+         lt.record_time,
+         lt.created_at,
+         lt.work_day_type,
+         lt.approval_status
+       FROM users u
+       LEFT JOIN departments d ON d.id = u.department_id
+       LEFT JOIN last_today lt ON lt.user_id = u.id
+       WHERE COALESCE(u.is_active, 1) = 1
+         AND COALESCE(u.role, 'employee') <> 'admin'
          AND ${scopeCondition}
-       GROUP BY DATE(ar.record_time)
-       ORDER BY DATE(ar.record_time) DESC`,
+       ORDER BY u.full_name ASC`,
       params
     );
 
-    res.json({ days: result.rows });
+    const active = [];
+    const inactive = [];
+
+    for (const row of result.rows) {
+      const item = {
+        id: row.id,
+        employee_code: row.employee_code,
+        full_name: row.full_name,
+        role: row.role,
+        department_id: row.department_id,
+        department_name: row.department_name || '-',
+        last_record_type: row.record_type || '',
+        last_record_time: row.record_time || '',
+        last_action_time: row.created_at || '',
+        work_day_type: row.work_day_type || '',
+        approval_status: row.approval_status || ''
+      };
+
+      if (row.record_type === 'in') active.push(item);
+      else inactive.push(item);
+    }
+
+    res.json({ date: today, active, inactive });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
