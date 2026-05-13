@@ -2,13 +2,51 @@ import { useEffect, useState } from 'react';
 
 function formatLocalDateTime(value) {
   if (!value) return '-';
+
   const text = String(value).trim();
+
+  // UTC אמיתי מהשרת - מציגים לפי שעון ישראל.
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(text)) {
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat('he-IL', {
+        timeZone: 'Asia/Jerusalem',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date);
+    }
+  }
+
+  // זמן ידני מקומי ללא timezone - מציגים כמו שהוא.
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (match) {
     const [, y, m, d, h, min, sec = '00'] = match;
     return `${Number(d)}.${Number(m)}.${y}, ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   }
-  try { return new Date(value).toLocaleString('he-IL'); } catch { return value; }
+
+  try {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat('he-IL', {
+        timeZone: 'Asia/Jerusalem',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date);
+    }
+    return value;
+  } catch {
+    return value;
+  }
 }
 
 import { apiGet } from '../services/api';

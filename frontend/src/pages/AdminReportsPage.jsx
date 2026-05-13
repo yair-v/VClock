@@ -27,8 +27,26 @@ function formatDateTime(value) {
 
   const text = String(value).trim();
 
-  // TIMESTAMP מהשרת מגיע כזמן מקומי ללא timezone: YYYY-MM-DD HH:mm:ss
-  // אסור להריץ עליו new Date(), אחרת הדפדפן/השרת מוסיפים המרת timezone.
+  // ערך שמסתיים ב-Z הוא UTC אמיתי מהשרת.
+  // במקרה כזה חייבים להציג אותו לפי שעון ישראל, אחרת רואים 3 שעות אחורה.
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(text)) {
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat('he-IL', {
+        timeZone: 'Asia/Jerusalem',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date);
+    }
+  }
+
+  // ערך ללא timezone הוא זמן מקומי שנבחר ידנית: YYYY-MM-DD HH:mm:ss / YYYY-MM-DDTHH:mm:ss
+  // אותו מציגים כמו שהוא, בלי new Date ובלי המרות.
   const localMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (localMatch) {
     const [, y, m, d, h, min, sec = '00'] = localMatch;
@@ -36,7 +54,20 @@ function formatDateTime(value) {
   }
 
   try {
-    return new Date(value).toLocaleString('he-IL');
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return new Intl.DateTimeFormat('he-IL', {
+        timeZone: 'Asia/Jerusalem',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(date);
+    }
+    return value;
   } catch {
     return value;
   }
