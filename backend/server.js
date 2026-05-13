@@ -1061,7 +1061,7 @@ app.get('/api/my-status', authRequired, async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance.record_time DESC, id DESC
+       ORDER BY attendance_records.record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -1107,7 +1107,7 @@ app.get('/api/my-records', authRequired, async (req, res) => {
        WHERE user_id = $1
          AND record_time >= $2::timestamp
          AND record_time < $3::timestamp
-       ORDER BY attendance.record_time DESC, id DESC`,
+       ORDER BY attendance_records.record_time DESC, id DESC`,
       [req.user.id, formatSqlDateTimeLocal(start), formatSqlDateTimeLocal(end)]
     );
 
@@ -1135,7 +1135,7 @@ app.get('/api/my-records-export', authRequired, async (req, res) => {
          created_at
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance.record_time DESC`,
+       ORDER BY attendance_records.record_time DESC`,
       [req.user.id]
     );
 
@@ -1220,7 +1220,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance.record_time DESC, id DESC
+       ORDER BY attendance_records.record_time DESC, id DESC
        LIMIT 1`,
       [req.user.id]
     );
@@ -1416,7 +1416,7 @@ app.post('/api/nfc/attendance', async (req, res) => {
       `SELECT *
        FROM attendance_records
        WHERE user_id = $1
-       ORDER BY attendance.record_time DESC, id DESC
+       ORDER BY attendance_records.record_time DESC, id DESC
        LIMIT 1`,
       [user.id]
     );
