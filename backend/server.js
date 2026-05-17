@@ -111,6 +111,37 @@ function formatSqlDateTimeLocal(date) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
+
+function normalizeTimestampText(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  const isoLocal = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (isoLocal) {
+    const [, y, m, d, h, min, sec = '00'] = isoLocal;
+    return `${y}-${m}-${d} ${h}:${min}:${String(sec).padStart(2, '0')}`;
+  }
+  const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]} 00:00:00`;
+  return text;
+}
+
+function getDatePartsFromLocalTimestamp(value) {
+  const text = normalizeTimestampText(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4] || '0'),
+    minute: Number(match[5] || '0'),
+    second: Number(match[6] || '0'),
+    dateString: `${match[1]}-${match[2]}-${match[3]}`,
+    monthKey: `${match[1]}-${match[2]}`,
+    sql: `${match[1]}-${match[2]}-${match[3]} ${match[4] || '00'}:${match[5] || '00'}:${String(match[6] || '00').padStart(2, '0')}`
+  };
+}
+
 function parseClientDateTime(value) {
   const text = String(value || '').trim();
   const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
@@ -206,6 +237,8 @@ function resolveRecordDateTime(recordDateTime) {
 
 function getDateStringFromValue(value) {
   if (!value) return '';
+  const parts = getDatePartsFromLocalTimestamp(value);
+  if (parts) return parts.dateString;
 
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: APP_TIMEZONE,
@@ -214,11 +247,11 @@ function getDateStringFromValue(value) {
     day: '2-digit'
   });
 
-  const parts = Object.fromEntries(
+  const dateParts = Object.fromEntries(
     formatter.formatToParts(new Date(value)).map((part) => [part.type, part.value])
   );
 
-  return `${parts.year}-${parts.month}-${parts.day}`;
+  return `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
 }
 
 function getWeekDayNameFromDateString(dateString) {
@@ -324,6 +357,8 @@ async function getNearestCityFromCoords(latitude, longitude) {
 
 
 function getMonthKeyFromDateValue(value) {
+  const parts = getDatePartsFromLocalTimestamp(value);
+  if (parts) return parts.monthKey;
   const date = new Date(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -1367,7 +1402,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
        )
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,
-         $21,NOW(),
+         $21,$22,
          $10,$11,$12,$13,$14,$15,$16,
          $17,$18,$19,$20
        )
@@ -1393,7 +1428,8 @@ app.post('/api/attendance', authRequired, async (req, res) => {
         mealCity,
         normalizedMealType ? latitude : '',
         normalizedMealType ? longitude : '',
-        resolvedRecordTime.sql
+        resolvedRecordTime.sql,
+        getNowInIsrael().dateTimeString
       ]
     );
 
@@ -1526,7 +1562,7 @@ app.post('/api/nfc/attendance', async (req, res) => {
        )
        VALUES (
          $1,$2,$3,$4,'','','ok',$5,$6,
-         NOW(),NOW(),
+         $11,$12,
          $7,$8,$9,'',0,'nfc_card',$10,'','','',''
        )
        RETURNING *`,
@@ -1540,7 +1576,9 @@ app.post('/api/nfc/attendance', async (req, res) => {
         validation.approvalStatus,
         validation.requiresAdminApproval ? 1 : 0,
         validation.exceptionReason,
-        buildActionTitle(nextRecordType, workDayType)
+        buildActionTitle(nextRecordType, workDayType),
+        getNowInIsrael().dateTimeString,
+        getNowInIsrael().dateTimeString
       ]
     );
 
@@ -1777,8 +1815,8 @@ app.post('/api/admin/reports/manual', authRequired, managerRequired, async (req,
          edited_by
        )
        VALUES (
-         $1,$2,$3,$4,'','','ok','','',$5::timestamp,NOW(),
-         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7
+         $1,$2,$3,$4,'','','ok','','',$5::timestamp,$8::timestamp,
+         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,$9::timestamp,$7
        )
        RETURNING *`,
       [
@@ -1788,7 +1826,9 @@ app.post('/api/admin/reports/manual', authRequired, managerRequired, async (req,
         note || '',
         record_time,
         manager_note || 'נוצר ידנית על ידי מנהל',
-        req.user.id
+        req.user.id,
+        getNowInIsrael().dateTimeString,
+        getNowInIsrael().dateTimeString
       ]
     );
 
@@ -1899,9 +1939,9 @@ app.put('/api/admin/reports/:id', authRequired, managerRequired, async (req, res
            record_type = COALESCE($5, record_type),
            record_time = COALESCE($6::timestamp, record_time),
            is_edited = TRUE,
-           edited_at = NOW(),
+           edited_at = $8::timestamp,
            edited_by = $7
-       WHERE id = $8
+       WHERE id = $9
        RETURNING *`,
       [
         work_day_type || null,
@@ -1911,6 +1951,7 @@ app.put('/api/admin/reports/:id', authRequired, managerRequired, async (req, res
         normalizedRecordType,
         nextRecordTime,
         req.user.id,
+        getNowInIsrael().dateTimeString,
         id
       ]
     );

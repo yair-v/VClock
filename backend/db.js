@@ -1,5 +1,11 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const bcrypt = require('bcryptjs');
+
+// חשוב: לא לתת ל-node-postgres להפוך TIMESTAMP ל-Date אוטומטית.
+// המערכת עובדת לפי שעון ישראל כערך מקומי (YYYY-MM-DD HH:mm:ss),
+// והמרה אוטומטית ל-Date יוצרת קפיצות של 2/3 שעות לפי UTC.
+types.setTypeParser(1114, (value) => value); // timestamp without time zone
+types.setTypeParser(1184, (value) => value); // timestamp with time zone
 
 const connectionString = process.env.DATABASE_URL;
 

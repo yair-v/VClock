@@ -20,19 +20,18 @@ const workDayOptions = [
 
 function formatDateTime(value) {
   if (!value) return '-';
-  try {
-    return new Date(value).toLocaleString('he-IL');
-  } catch {
-    return value;
-  }
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) return `${match[4]}:${match[5]}:${match[6] || '00'} ${match[3]}/${match[2]}/${match[1]}`;
+  return text;
 }
 
 function formatForDateTimeLocal(value) {
   if (!value) return '';
-  const d = new Date(value);
-  const offset = d.getTimezoneOffset();
-  const local = new Date(d.getTime() - offset * 60000);
-  return local.toISOString().slice(0, 16);
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+  return '';
 }
 
 function defaultNewReport() {
@@ -144,9 +143,7 @@ export default function AdminReportsPage() {
         manager_note: editForm.manager_note,
         approval_status: editForm.approval_status,
         record_type: editForm.record_type,
-        record_time: editForm.record_time
-          ? new Date(editForm.record_time).toISOString()
-          : null
+        record_time: editForm.record_time || null
       });
 
       setMessage('הדיווח עודכן בהצלחה');
@@ -184,9 +181,7 @@ export default function AdminReportsPage() {
         work_day_type: newReport.work_day_type,
         note: newReport.note,
         manager_note: newReport.manager_note,
-        record_time: newReport.record_time
-          ? new Date(newReport.record_time).toISOString()
-          : null
+        record_time: newReport.record_time || null
       });
 
       setMessage('הדיווח נוצר בהצלחה');

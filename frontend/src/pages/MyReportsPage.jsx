@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { apiGet } from '../services/api';
 
+function formatDateTime(value) {
+  if (!value) return '-';
+  const text = String(value);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) return `${match[4]}:${match[5]}:${match[6] || '00'} ${match[3]}/${match[2]}/${match[1]}`;
+  return text;
+}
+
 export default function MyReportsPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,8 +55,8 @@ export default function MyReportsPage() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
-                <td>{new Date(row.record_time).toLocaleString('he-IL')}</td>
-                <td>{row.created_at ? new Date(row.created_at).toLocaleString('he-IL') : '-'}</td>
+                <td>{formatDateTime(row.record_time)}</td>
+                <td>{formatDateTime(row.created_at)}</td>
                 <td>{row.record_type === 'in' ? 'כניסה' : 'יציאה'}</td>
                 <td>{row.work_day_type}</td>
                 <td>{row.note || '-'}</td>
