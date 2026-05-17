@@ -18,34 +18,41 @@ const workDayOptions = [
   'אחר'
 ];
 
-function formatDateTime(value) {
-  if (!value) return '-';
-  const text = String(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (match) return `${match[4]}:${match[5]}:${match[6] || '00'} ${match[3]}/${match[2]}/${match[1]}`;
+function normalizeDateTimeText(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]} ${iso[4]}:${iso[5]}:${iso[6] || '00'}`;
   return text;
 }
 
+function formatDateTime(value) {
+  const normalized = normalizeDateTimeText(value);
+  if (!normalized) return '-';
+  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return normalized;
+  return `${m[3]}.${m[2]}.${m[1]}, ${m[4]}:${m[5]}:${m[6] || '00'}`;
+}
+
 function formatForDateTimeLocal(value) {
-  if (!value) return '';
-  const text = String(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  if (match) return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
-  return '';
+  const normalized = normalizeDateTimeText(value);
+  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}` : '';
+}
+
+function toDateTimeInputValue(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function defaultNewReport() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60000);
-
   return {
     user_id: '',
     record_type: 'in',
     work_day_type: 'יום רגיל',
     note: '',
     manager_note: 'נוצר ידנית על ידי מנהל',
-    record_time: local.toISOString().slice(0, 16)
+    record_time: toDateTimeInputValue(new Date())
   };
 }
 

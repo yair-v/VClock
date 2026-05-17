@@ -9,7 +9,7 @@ function currentMonthValue() {
 function formatWorkDate(value) {
   if (!value) return '-';
   try {
-    return new Date(value).toLocaleDateString('he-IL');
+    const text = String(value); const m = text.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : text;
   } catch {
     return value;
   }
@@ -72,8 +72,8 @@ export default function AdminMonthlyPage() {
                 <td>{formatWorkDate(row.work_date)}</td>
                 <td>{row.full_name}</td>
                 <td>{row.employee_code}</td>
-                <td>{row.first_in ? new Date(row.first_in).toLocaleTimeString('he-IL') : '-'}</td>
-                <td>{row.last_out ? new Date(row.last_out).toLocaleTimeString('he-IL') : '-'}</td>
+                <td>{row.first_in ? String(row.first_in).slice(11, 19) : '-'}</td>
+                <td>{row.last_out ? String(row.last_out).slice(11, 19) : '-'}</td>
                 <td>{row.totalHours || '-'}</td>
                 <td>{row.breakfast_count || 0} / ₪{formatMoney(row.breakfast_total)}</td>
                 <td>{row.lunch_count || 0} / ₪{formatMoney(row.lunch_total)}</td>

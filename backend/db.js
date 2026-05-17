@@ -1,11 +1,12 @@
 const { Pool, types } = require('pg');
-const bcrypt = require('bcryptjs');
 
-// חשוב: לא לתת ל-node-postgres להפוך TIMESTAMP ל-Date אוטומטית.
-// המערכת עובדת לפי שעון ישראל כערך מקומי (YYYY-MM-DD HH:mm:ss),
-// והמרה אוטומטית ל-Date יוצרת קפיצות של 2/3 שעות לפי UTC.
-types.setTypeParser(1114, (value) => value); // timestamp without time zone
-types.setTypeParser(1184, (value) => value); // timestamp with time zone
+// IMPORTANT: Keep PostgreSQL DATE/TIMESTAMP values as raw strings.
+// The system stores attendance times as Israel local wall-clock strings
+// (YYYY-MM-DD HH:mm:ss). Parsing them to JavaScript Date objects causes
+// UTC/local timezone shifts of 2-3 hours in reports.
+types.setTypeParser(1082, (value) => value); // DATE
+types.setTypeParser(1114, (value) => value); // TIMESTAMP WITHOUT TIME ZONE
+const bcrypt = require('bcryptjs');
 
 const connectionString = process.env.DATABASE_URL;
 

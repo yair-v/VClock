@@ -87,6 +87,49 @@ function getNowInIsrael() {
 }
 
 
+
+function normalizeDateTimeString(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+
+  // 2026-05-13 17:39:58 / 2026-05-13T17:39 / 2026-05-13T17:39:58.000Z
+  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]} ${iso[4]}:${iso[5]}:${iso[6] || '00'}`;
+
+  // 13/05/2026 17:39 or 13.5.2026, 17:39:58
+  const il = text.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})\D+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (il) {
+    const dd = il[1].padStart(2, '0');
+    const mm = il[2].padStart(2, '0');
+    const yyyy = il[3];
+    const hh = il[4].padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${il[5]}:${il[6] || '00'}`;
+  }
+
+  // 2026-05-13 only
+  const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]} 00:00:00`;
+
+  return '';
+}
+
+function localDateTimeToComparableMs(sqlDateTime) {
+  const normalized = normalizeDateTimeString(sqlDateTime);
+  const m = normalized.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return NaN;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]));
+}
+
+function getDateStringFromLocalValue(value) {
+  const normalized = normalizeDateTimeString(value);
+  return normalized ? normalized.slice(0, 10) : '';
+}
+
+function getMonthKeyFromLocalValue(value) {
+  const dateString = getDateStringFromLocalValue(value);
+  return dateString ? dateString.slice(0, 7) : '';
+}
+
 function getWorkdayWindow(now = new Date()) {
   const start = new Date(now);
   start.setHours(3, 0, 0, 0);
@@ -111,147 +154,45 @@ function formatSqlDateTimeLocal(date) {
   return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
 }
 
-
-function normalizeTimestampText(value) {
-  if (!value) return '';
-  const text = String(value).trim();
-  const isoLocal = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (isoLocal) {
-    const [, y, m, d, h, min, sec = '00'] = isoLocal;
-    return `${y}-${m}-${d} ${h}:${min}:${String(sec).padStart(2, '0')}`;
-  }
-  const dateOnly = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dateOnly) return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]} 00:00:00`;
-  return text;
-}
-
-function getDatePartsFromLocalTimestamp(value) {
-  const text = normalizeTimestampText(value);
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-  if (!match) return null;
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    day: Number(match[3]),
-    hour: Number(match[4] || '0'),
-    minute: Number(match[5] || '0'),
-    second: Number(match[6] || '0'),
-    dateString: `${match[1]}-${match[2]}-${match[3]}`,
-    monthKey: `${match[1]}-${match[2]}`,
-    sql: `${match[1]}-${match[2]}-${match[3]} ${match[4] || '00'}:${match[5] || '00'}:${String(match[6] || '00').padStart(2, '0')}`
-  };
-}
-
 function parseClientDateTime(value) {
-  const text = String(value || '').trim();
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
-  if (!match) return null;
-
-  const [, y, m, d, h, min, sec = '00'] = match;
-  const year = Number(y);
-  const month = Number(m);
-  const day = Number(d);
-  const hour = Number(h);
-  const minute = Number(min);
-  const second = Number(sec);
-
-  if (
-    !year || month < 1 || month > 12 || day < 1 || day > 31 ||
-    hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59
-  ) {
-    return null;
-  }
-
-  const sql = `${y}-${m}-${d} ${h}:${min}:${String(second).padStart(2, '0')}`;
-  return {
-    year,
-    month,
-    day,
-    hour,
-    minute,
-    second,
-    sql,
-    dateString: `${y}-${m}-${d}`,
-    timeString: `${h}:${min}:${String(second).padStart(2, '0')}`,
-    minutes: hour * 60 + minute
-  };
-}
-
-function israelWallClockToMs(parts) {
-  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second || 0);
-}
-
-function subtractHoursFromIsraelNow(hours) {
-  const nowIsrael = getNowInIsrael();
-  const utcLike = new Date(Date.UTC(
-    nowIsrael.year,
-    nowIsrael.month - 1,
-    nowIsrael.day,
-    nowIsrael.hour,
-    nowIsrael.minute,
-    nowIsrael.second
-  ));
-  utcLike.setUTCHours(utcLike.getUTCHours() - hours);
-  const pad = (n) => String(n).padStart(2, '0');
-  return {
-    year: utcLike.getUTCFullYear(),
-    month: utcLike.getUTCMonth() + 1,
-    day: utcLike.getUTCDate(),
-    hour: utcLike.getUTCHours(),
-    minute: utcLike.getUTCMinutes(),
-    second: utcLike.getUTCSeconds(),
-    sql: `${utcLike.getUTCFullYear()}-${pad(utcLike.getUTCMonth() + 1)}-${pad(utcLike.getUTCDate())} ${pad(utcLike.getUTCHours())}:${pad(utcLike.getUTCMinutes())}:${pad(utcLike.getUTCSeconds())}`
-  };
+  return normalizeDateTimeString(value);
 }
 
 function resolveRecordDateTime(recordDateTime) {
   const nowIsrael = getNowInIsrael();
-  const requested = recordDateTime ? parseClientDateTime(recordDateTime) : parseClientDateTime(nowIsrael.dateTimeString);
+  const nowSql = nowIsrael.dateTimeString;
+  const requestedSql = recordDateTime ? parseClientDateTime(recordDateTime) : nowSql;
 
-  if (!requested) {
+  if (!requestedSql) {
     return { error: 'תאריך או שעה אינם תקינים' };
   }
 
-  const oldestAllowed = subtractHoursFromIsraelNow(72);
-  const requestedMs = israelWallClockToMs(requested);
-  const nowMs = israelWallClockToMs(nowIsrael);
-  const oldestMs = israelWallClockToMs(oldestAllowed);
+  const requestedMs = localDateTimeToComparableMs(requestedSql);
+  const nowMs = localDateTimeToComparableMs(nowSql);
+  if (Number.isNaN(requestedMs) || Number.isNaN(nowMs)) {
+    return { error: 'תאריך או שעה אינם תקינים' };
+  }
 
-  if (requestedMs < oldestMs) {
+  const oldestAllowedMs = nowMs - 72 * 60 * 60 * 1000;
+  if (requestedMs < oldestAllowedMs) {
     return { error: 'ניתן לדווח עד 72 שעות אחורה בלבד' };
   }
 
-  // השוואה לפי שעון ישראל בלבד. לא משתמשים ב-UTC של השרת כדי למנוע קפיצות של 2/3 שעות.
-  if (requestedMs > nowMs + 10 * 60 * 1000) {
+  // Allow up to 2 minutes drift between browser and server clocks.
+  if (requestedMs > nowMs + 2 * 60 * 1000) {
     return { error: 'לא ניתן לדווח על תאריך או שעה עתידיים' };
   }
 
   return {
-    date: new Date(Date.UTC(requested.year, requested.month - 1, requested.day, requested.hour, requested.minute, requested.second)),
-    sql: requested.sql,
-    dateString: requested.dateString,
-    timeString: requested.timeString,
-    minutes: requested.minutes
+    sql: requestedSql,
+    dateString: requestedSql.slice(0, 10),
+    timeString: requestedSql.slice(11, 19),
+    minutes: Number(requestedSql.slice(11, 13)) * 60 + Number(requestedSql.slice(14, 16))
   };
 }
 
 function getDateStringFromValue(value) {
-  if (!value) return '';
-  const parts = getDatePartsFromLocalTimestamp(value);
-  if (parts) return parts.dateString;
-
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
-
-  const dateParts = Object.fromEntries(
-    formatter.formatToParts(new Date(value)).map((part) => [part.type, part.value])
-  );
-
-  return `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  return getDateStringFromLocalValue(value);
 }
 
 function getWeekDayNameFromDateString(dateString) {
@@ -357,10 +298,7 @@ async function getNearestCityFromCoords(latitude, longitude) {
 
 
 function getMonthKeyFromDateValue(value) {
-  const parts = getDatePartsFromLocalTimestamp(value);
-  if (parts) return parts.monthKey;
-  const date = new Date(value);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return getMonthKeyFromLocalValue(value);
 }
 
 function getPreviousMonthKeyByIsraelDate(dateString) {
@@ -413,8 +351,8 @@ async function logAction({ userId = null, attendanceRecordId = null, actionType,
        created_by_user_id,
        created_at
      )
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-    [userId, attendanceRecordId, actionType, actionTitle, details, createdByUserId]
+     VALUES ($1, $2, $3, $4, $5, $6, $7::timestamp)`,
+    [userId, attendanceRecordId, actionType, actionTitle, details, createdByUserId, getNowInIsrael().dateTimeString]
   );
 }
 
@@ -1402,7 +1340,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
        )
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,
-         $21,$22,
+         $21::timestamp,$22::timestamp,
          $10,$11,$12,$13,$14,$15,$16,
          $17,$18,$19,$20
        )
@@ -1449,7 +1387,7 @@ app.post('/api/attendance', authRequired, async (req, res) => {
       actionTitle: buildActionTitle(recordType, workDayType),
       details: [
         `הזמן שהוזן ידנית: ${resolvedRecordTime.sql}`,
-        `חותמת זמן ביצוע הפעולה: ${new Date().toISOString()}`,
+        `חותמת זמן ביצוע הפעולה: ${getNowInIsrael().dateTimeString}`,
         `סוג יום: ${workDayType}`,
         note ? `הערה: ${note}` : '',
         validation.exceptionReason ? `חריגה: ${validation.exceptionReason}` : '',
@@ -1562,7 +1500,7 @@ app.post('/api/nfc/attendance', async (req, res) => {
        )
        VALUES (
          $1,$2,$3,$4,'','','ok',$5,$6,
-         $11,$12,
+         $11::timestamp,$11::timestamp,
          $7,$8,$9,'',0,'nfc_card',$10,'','','',''
        )
        RETURNING *`,
@@ -1577,7 +1515,6 @@ app.post('/api/nfc/attendance', async (req, res) => {
         validation.requiresAdminApproval ? 1 : 0,
         validation.exceptionReason,
         buildActionTitle(nextRecordType, workDayType),
-        getNowInIsrael().dateTimeString,
         getNowInIsrael().dateTimeString
       ]
     );
@@ -1631,69 +1568,66 @@ app.get('/api/admin/dashboard', authRequired, managerRequired, async (req, res) 
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
-    const today = String(req.query.date || '').trim() || getNowInIsrael().dateString;
+    const selectedDate = String(req.query.date || '').trim() || getNowInIsrael().dateString;
     const userIds = await getVisibleUserIds(req);
     const scopeCondition = scopedAnyCondition(userIds, 'u.id', 2);
-    const params = userIds === null ? [today] : [today, userIds];
+    const params = userIds === null ? [selectedDate] : [selectedDate, userIds];
 
     const result = await query(
-      `WITH last_today AS (
+      `WITH visible_users AS (
+         SELECT
+           u.id,
+           u.employee_code,
+           u.full_name,
+           u.role,
+           u.department_id,
+           COALESCE(d.name, '') AS department_name
+         FROM users u
+         LEFT JOIN departments d ON d.id = u.department_id
+         WHERE COALESCE(u.is_active, 1) = 1
+           AND COALESCE(u.role, 'employee') <> 'admin'
+           AND ${scopeCondition}
+       ), latest_today AS (
          SELECT DISTINCT ON (ar.user_id)
            ar.user_id,
-           ar.record_type,
-           ar.record_time,
-           ar.created_at,
-           ar.work_day_type,
-           ar.approval_status
+           ar.record_type AS last_record_type,
+           ar.record_time AS last_record_time,
+           ar.work_day_type
          FROM attendance_records ar
+         JOIN visible_users vu ON vu.id = ar.user_id
          WHERE DATE(ar.record_time) = $1::date
          ORDER BY ar.user_id, ar.record_time DESC, ar.id DESC
        )
        SELECT
-         u.id,
-         u.employee_code,
-         u.full_name,
-         u.role,
-         u.department_id,
-         d.name AS department_name,
-         lt.record_type,
-         lt.record_time,
-         lt.created_at,
+         vu.id,
+         vu.employee_code,
+         vu.full_name,
+         vu.role,
+         vu.department_id,
+         vu.department_name,
+         lt.last_record_type,
+         lt.last_record_time,
          lt.work_day_type,
-         lt.approval_status
-       FROM users u
-       LEFT JOIN departments d ON d.id = u.department_id
-       LEFT JOIN last_today lt ON lt.user_id = u.id
-       WHERE COALESCE(u.is_active, 1) = 1
-         AND COALESCE(u.role, 'employee') <> 'admin'
-         AND ${scopeCondition}
-       ORDER BY u.full_name ASC`,
+         CASE WHEN lt.last_record_type = 'in' THEN TRUE ELSE FALSE END AS is_active_now
+       FROM visible_users vu
+       LEFT JOIN latest_today lt ON lt.user_id = vu.id
+       ORDER BY is_active_now DESC, vu.full_name ASC`,
       params
     );
 
-    const active = [];
-    const inactive = [];
+    const activeEmployees = result.rows.filter((row) => row.is_active_now);
+    const inactiveEmployees = result.rows.filter((row) => !row.is_active_now);
 
-    for (const row of result.rows) {
-      const item = {
-        id: row.id,
-        employee_code: row.employee_code,
-        full_name: row.full_name,
-        role: row.role,
-        department_id: row.department_id,
-        department_name: row.department_name || '-',
-        last_record_type: row.record_type || '',
-        last_record_time: row.record_time || '',
-        last_action_time: row.created_at || '',
-        work_day_type: row.work_day_type || '',
-        approval_status: row.approval_status || ''
-      };
-
-      if (row.record_type === 'in') active.push(item);
-      else inactive.push(item);
-    }
-
-    res.json({ date: today, active, inactive });
+    res.json({
+      selectedDate,
+      activeEmployees,
+      inactiveEmployees,
+      totals: {
+        active: activeEmployees.length,
+        inactive: inactiveEmployees.length,
+        total: result.rows.length
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1815,8 +1749,8 @@ app.post('/api/admin/reports/manual', authRequired, managerRequired, async (req,
          edited_by
        )
        VALUES (
-         $1,$2,$3,$4,'','','ok','','',$5::timestamp,$8::timestamp,
-         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,$9::timestamp,$7
+         $1,$2,$3,$4,'','','ok','','',$5::timestamp,NOW(),
+         'approved',0,'',$6,0,'admin_manual','הוספה ידנית על ידי מנהל',TRUE,NOW(),$7
        )
        RETURNING *`,
       [
@@ -1826,9 +1760,7 @@ app.post('/api/admin/reports/manual', authRequired, managerRequired, async (req,
         note || '',
         record_time,
         manager_note || 'נוצר ידנית על ידי מנהל',
-        req.user.id,
-        getNowInIsrael().dateTimeString,
-        getNowInIsrael().dateTimeString
+        req.user.id
       ]
     );
 
@@ -1939,9 +1871,9 @@ app.put('/api/admin/reports/:id', authRequired, managerRequired, async (req, res
            record_type = COALESCE($5, record_type),
            record_time = COALESCE($6::timestamp, record_time),
            is_edited = TRUE,
-           edited_at = $8::timestamp,
+           edited_at = NOW(),
            edited_by = $7
-       WHERE id = $9
+       WHERE id = $8
        RETURNING *`,
       [
         work_day_type || null,
@@ -1951,7 +1883,6 @@ app.put('/api/admin/reports/:id', authRequired, managerRequired, async (req, res
         normalizedRecordType,
         nextRecordTime,
         req.user.id,
-        getNowInIsrael().dateTimeString,
         id
       ]
     );
@@ -2885,7 +2816,7 @@ app.get('/api/admin/dashboard-stats', authRequired, managerRequired, async (req,
     await ensureMonthlyLock();
     await ensureAutoCloseSpecialRecords();
 
-    const selectedDate = String(req.query.date || '').trim() || new Date().toISOString().slice(0, 10);
+    const selectedDate = String(req.query.date || '').trim() || getNowInIsrael().dateString;
     const groupId = req.query.groupId ? parseInt(req.query.groupId, 10) : null;
 
     let groupName = 'כל הקטגוריות';
